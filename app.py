@@ -10,7 +10,6 @@ import psycopg2
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -28,19 +27,22 @@ PERSONA_THRESHOLDS: dict[str, float] = {
     "ML Engineer":   0.88,
 }
 
-SIMILARITY_PASS  = 0.75
-SIMILARITY_FLAG  = 0.45
+SIMILARITY_PASS = 0.75
+SIMILARITY_FLAG = 0.45
 
-# ── Model (loaded once at startup) ─────────────────────────────────────────────
+# ── Embedding model (ONNX via fastembed — ~150MB RAM, no torch) ────────────────
 
-_model: SentenceTransformer | None = None
+_embed_model = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _model
-    print("Loading all-MiniLM-L6-v2...")
-    _model = SentenceTransformer("all-MiniLM-L6-v2")
+    global _embed_model
+    from fastembed import TextEmbedding
+    print("Loading all-MiniLM-L6-v2 via fastembed...")
+    _embed_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
+    # Warm up
+    list(_embed_model.embed(["warmup"]))
     print("Model ready.")
     yield
 
@@ -84,7 +86,13 @@ class QueryResponse(BaseModel):
     query: str
 
 
-# ── DB helpers ─────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+
+def _embed(text: str) -> list[float]:
+    if _embed_model is None:
+        raise RuntimeError("Model not loaded")
+    return list(list(_embed_model.embed([text[:512]]))[0])
 
 
 def _get_conn():
@@ -132,18 +140,20 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    chunks = _chunk_count()
-    return {"status": "ok", "chunks_loaded": chunks}
+    return {"status": "ok", "chunks_loaded": _chunk_count()}
 
 
 @app.post("/api/query", response_model=QueryResponse)
 def run_query(body: QueryRequest) -> QueryResponse:
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded yet")
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Model not ready")
 
     threshold = PERSONA_THRESHOLDS.get(body.persona, 0.96)
 
-    embedding: list[float] = _model.encode(body.query).tolist()
+    try:
+        embedding = _embed(body.query)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Embedding error: {exc}") from exc
 
     try:
         raw = _search(embedding, limit=5)
