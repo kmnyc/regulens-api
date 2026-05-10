@@ -1,0 +1,178 @@
+"""ReguLens FastAPI backend — semantic search over regulatory_chunks."""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+from typing import Any
+
+import psycopg2
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+
+DB_DSN = (
+    f"host={os.getenv('DB_HOST', 'localhost')} "
+    f"port={os.getenv('DB_PORT', '5432')} "
+    f"dbname={os.getenv('DB_NAME', 'regulens')} "
+    f"user={os.getenv('DB_USER', 'postgres')} "
+    f"password={os.getenv('DB_PASSWORD', '')}"
+)
+
+PERSONA_THRESHOLDS: dict[str, float] = {
+    "Lead Auditor":  0.96,
+    "Legal Counsel": 0.96,
+    "ML Engineer":   0.88,
+}
+
+SIMILARITY_PASS  = 0.75
+SIMILARITY_FLAG  = 0.45
+
+# ── Model (loaded once at startup) ─────────────────────────────────────────────
+
+_model: SentenceTransformer | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _model
+    print("Loading all-MiniLM-L6-v2...")
+    _model = SentenceTransformer("all-MiniLM-L6-v2")
+    print("Model ready.")
+    yield
+
+
+# ── App ────────────────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="ReguLens API",
+    description="Semantic search over EU AI Act / NIST AI RMF regulatory corpus",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# ── Request / Response models ──────────────────────────────────────────────────
+
+
+class QueryRequest(BaseModel):
+    query: str
+    persona: str = "Lead Auditor"
+
+
+class ChunkResult(BaseModel):
+    article_ref: str
+    content: str
+    similarity: float
+    verdict: str
+    confidence: float
+
+
+class QueryResponse(BaseModel):
+    results: list[ChunkResult]
+    persona: str
+    threshold: float
+    query: str
+
+
+# ── DB helpers ─────────────────────────────────────────────────────────────────
+
+
+def _get_conn():
+    return psycopg2.connect(DB_DSN, connect_timeout=5)
+
+
+def _chunk_count() -> int:
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM regulatory_chunks")
+        n = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        return n
+    except Exception:
+        return -1
+
+
+def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
+    emb_str = "[" + ",".join(f"{v:.8f}" for v in embedding) + "]"
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT chunk_id::text,
+               article_ref,
+               content,
+               1 - (embedding <=> %s::vector) AS similarity
+        FROM regulatory_chunks
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+        """,
+        (emb_str, emb_str, limit),
+    )
+    cols = ("chunk_id", "article_ref", "content", "similarity")
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    chunks = _chunk_count()
+    return {"status": "ok", "chunks_loaded": chunks}
+
+
+@app.post("/api/query", response_model=QueryResponse)
+def run_query(body: QueryRequest) -> QueryResponse:
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded yet")
+
+    threshold = PERSONA_THRESHOLDS.get(body.persona, 0.96)
+
+    embedding: list[float] = _model.encode(body.query).tolist()
+
+    try:
+        raw = _search(embedding, limit=5)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    results: list[ChunkResult] = []
+    for row in raw:
+        sim: float = float(row["similarity"])
+        if sim >= SIMILARITY_PASS:
+            verdict = "PASS"
+        elif sim >= SIMILARITY_FLAG:
+            verdict = "FLAG"
+        else:
+            verdict = "BLOCK"
+
+        results.append(
+            ChunkResult(
+                article_ref=row["article_ref"] or "—",
+                content=(row["content"] or "")[:400],
+                similarity=round(sim, 4),
+                verdict=verdict,
+                confidence=round(sim / threshold, 4),
+            )
+        )
+
+    return QueryResponse(
+        results=results,
+        persona=body.persona,
+        threshold=threshold,
+        query=body.query,
+    )
