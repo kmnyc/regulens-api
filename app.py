@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -159,10 +160,29 @@ def run_query(body: QueryRequest) -> QueryResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
+    # Keyword boost: if query names "Article N", lift matching chunk similarity
+    article_mentions = {
+        m.group(0).lower()
+        for m in re.finditer(r"article\s+\d+", body.query, re.IGNORECASE)
+    }
+
     results: list[ChunkResult] = []
     for row in raw:
         sim: float = float(row["similarity"])
-        confidence = round(min(1.0, 0.5 + (sim * 0.7)), 4)
+
+        # Boost if chunk article_ref matches an explicit article mention in query
+        ref_lower = (row["article_ref"] or "").lower()
+        if any(mention in ref_lower or ref_lower in mention for mention in article_mentions):
+            sim = min(1.0, sim + 0.15)
+
+        # Map raw cosine similarity to confidence:
+        # 0.70 → 1.0,  0.66 → 0.96,  0.60 → 0.90,  0.50 → 0.77
+        if sim >= 0.60:
+            confidence = round(min(1.0, 0.90 + (sim - 0.60) * 1.0), 4)
+        elif sim >= 0.45:
+            confidence = round(0.70 + (sim - 0.45) * 1.33, 4)
+        else:
+            confidence = round(sim * 1.2, 4)
 
         if confidence >= threshold:
             verdict = "PASS"
@@ -180,6 +200,9 @@ def run_query(body: QueryRequest) -> QueryResponse:
                 confidence=confidence,
             )
         )
+
+    # Sort by similarity descending after boost
+    results.sort(key=lambda r: r.similarity, reverse=True)
 
     return QueryResponse(
         results=results,
