@@ -27,8 +27,7 @@ PERSONA_THRESHOLDS: dict[str, float] = {
     "ML Engineer":   0.88,
 }
 
-SIMILARITY_PASS = 0.75
-SIMILARITY_FLAG = 0.45
+CONFIDENCE_FLAG = 0.60
 
 # ── Embedding model (ONNX via fastembed — ~150MB RAM, no torch) ────────────────
 
@@ -163,9 +162,11 @@ def run_query(body: QueryRequest) -> QueryResponse:
     results: list[ChunkResult] = []
     for row in raw:
         sim: float = float(row["similarity"])
-        if sim >= SIMILARITY_PASS:
+        confidence = round(min(1.0, 0.5 + (sim * 0.7)), 4)
+
+        if confidence >= threshold:
             verdict = "PASS"
-        elif sim >= SIMILARITY_FLAG:
+        elif confidence >= CONFIDENCE_FLAG:
             verdict = "FLAG"
         else:
             verdict = "BLOCK"
@@ -176,7 +177,7 @@ def run_query(body: QueryRequest) -> QueryResponse:
                 content=(row["content"] or "")[:400],
                 similarity=round(sim, 4),
                 verdict=verdict,
-                confidence=round(sim / threshold, 4),
+                confidence=confidence,
             )
         )
 
