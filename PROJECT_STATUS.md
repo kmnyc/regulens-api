@@ -89,12 +89,12 @@
 
 **Execution started:** 2026-05-17
 **Pre-execution tag:** `pre-caveman-v3` (commit `a900d4e`)
-**Current state:** Prompt 1 complete — 3 audit events confirmed, chain intact, audit_chain.py service extracted
+**Current state:** Prompt 2 complete — LangGraph StateGraph live, /api/query → LangGraph, /api/v1/query fallback intact
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
 | **1** | SHA-256 Hash Chain Audit Trail | LOW | ✅ COMPLETE |
-| **2** | LangGraph StateGraph | MEDIUM | ⏳ IN PROGRESS |
+| **2** | LangGraph StateGraph | MEDIUM | ✅ COMPLETE |
 | **3** | Opik Observability | LOW | ⬜ PENDING |
 | **4** | DSPy Modules | MEDIUM | ⬜ PENDING |
 | **5** | DSPy + Opik Integration | LOW | ⬜ PENDING |
@@ -107,3 +107,12 @@
 - [x] skip_legacy flag added — pre-existing rows excluded from chain check
 - [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works
 - [x] audit logic extracted to `src/services/audit_chain.py` (ready for LangGraph import)
+
+### Prompt 2 Acceptance Criteria
+- [x] `src/graph/pipeline.py` — LangGraph StateGraph with 7 nodes (GraphState TypedDict schema)
+- [x] Graph routes: < 30% BLOCK → respond, 30–50% + retry < 2 → retry_retrieve, > 50% → gap_report
+- [x] Every respond_node call logs to audit_chain via `log_event(event_type="langgraph_query")`
+- [x] `/api/v2/query` live — returns retrieved_chunks, raw_answer (Groq Llama 3.3 70B), claims, overall_verdict
+- [x] `/api/query` swapped to LangGraph pipeline — returns QueryResponse format (frontend-compatible)
+- [x] `/api/v1/query` kept as semantic-search fallback
+- [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works (QueryResponse shape unchanged)
