@@ -362,7 +362,7 @@ def run_query(body: QueryRequest) -> QueryResponse:
             avg_confidence=avg_conf,
         )
     except Exception as exc:
-        print(f"[audit] WARNING: failed to log audit event: {exc}")
+        audit_event_id = f"ERR:{type(exc).__name__}:{exc}"
 
     return QueryResponse(
         results=results,
