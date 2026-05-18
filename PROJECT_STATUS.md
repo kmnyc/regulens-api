@@ -89,13 +89,13 @@
 
 **Execution started:** 2026-05-17
 **Pre-execution tag:** `pre-caveman-v3` (commit `a900d4e`)
-**Current state:** Prompt 2 complete — LangGraph StateGraph live, /api/query → LangGraph, /api/v1/query fallback intact
+**Current state:** Prompt 3 complete — Opik tracing live, LangGraph spans shipping to Opik dashboard
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
 | **1** | SHA-256 Hash Chain Audit Trail | LOW | ✅ COMPLETE |
 | **2** | LangGraph StateGraph | MEDIUM | ✅ COMPLETE |
-| **3** | Opik Observability | LOW | ⬜ PENDING |
+| **3** | Opik Observability | LOW | ✅ COMPLETE |
 | **4** | DSPy Modules | MEDIUM | ⬜ PENDING |
 | **5** | DSPy + Opik Integration | LOW | ⬜ PENDING |
 | **6** | End-to-End Validation | NONE | ⬜ PENDING |
@@ -116,3 +116,13 @@
 - [x] `/api/query` swapped to LangGraph pipeline — returns QueryResponse format (frontend-compatible)
 - [x] `/api/v1/query` kept as semantic-search fallback
 - [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works (QueryResponse shape unchanged)
+
+### Prompt 3 Acceptance Criteria
+- [x] `opik>=1.9.0` added to requirements.txt
+- [x] `opik.configure()` in FastAPI lifespan — non-fatal if `OPIK_API_KEY` missing
+- [x] `track_langgraph(compiled)` wraps graph in `build_regulens_graph()` — non-fatal fallback
+- [x] `@opik_track` on `_embed` (embed_query), `_search` (search_corpus), `_call_groq` (call_groq_llm)
+- [x] `src/eval/metrics.py` — ClaimAccuracyMetric, ThresholdComplianceMetric (no-op if opik absent)
+- [x] App starts normally without `OPIK_API_KEY` (graceful degradation)
+- [x] Live `/api/query` returns correct results (5 PASS results, chain_valid: True, 48 events)
+- [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works
