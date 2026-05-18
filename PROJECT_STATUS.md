@@ -100,7 +100,7 @@
 
 ### DSPy MIPROv2 Optimization (2026-05-18)
 
-**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d` → `72818ec` → `aaafed3`
+**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d` → `72818ec` → `aaafed3` → `abc7e1e`
 
 **Status:** ✅ COMPLETE — ISO 42001 ingested, corpus 312 chunks, best score 88.89%, 3 demos persisted
 
@@ -127,16 +127,18 @@
 | ISO 42001 ingestion | ✅ COMPLETE | `src/ingest_iso42001.py` (34) + `src/ingest_iso42001_supplement.py` (16) = **50 chunks** — all clauses 4–10 + all Annex A sections |
 | NIST Playbook ingestion | ✅ COMPLETE | `src/ingest_nist_supplement.py` — 19 chunks of suggested actions for GOVERN 1–6, MAP 1–5, MEASURE 1–4, MANAGE 1–4 |
 | Full MIPROv2 run (v3) | ✅ COMPLETE | 347-chunk corpus; 15 examples; 11 trials; best **88.89%** (Instruction 0 + Few-Shot Set 5); **3 demos persisted** |
-| Metric synonym fix | ✅ COMPLETE | Upgraded to synonym-group slots; 3 failing queries diagnosed — ceiling is model behavior on empty-context training, not keyword gaps; score holds at 88.89% |
+| Metric synonym fix | ✅ COMPLETE | Upgraded to synonym-group slots; 3 failing queries diagnosed — root cause was empty context |
+| Context prefetch | ✅ COMPLETE | `_prefetch_contexts()` queries `/api/v1/query` for each benchmark example before optimization; trainset now grounded in real corpus text |
+| Full MIPROv2 run (v4) | ✅ COMPLETE | **97.22%** best score (Instruction 1 + Few-Shot Set 3); default baseline 94.44%; all trials 2–11 converge to 97.22%; 3 demos |
 | Instruction 2 → live | ✅ LIVE | `_call_groq` system prompt upgraded to Instruction 2; `pipeline.py` loads `optimized_synthesizer.json` when DSPy available |
 
-**Metric ceiling analysis (88.89% = 10.67/12):**
-| Query | Score | Issue |
-|---|---|---|
-| "prohibited AI practices under Article 5" | 2/3 slots | Model omits "unacceptable"/"forbidden" with empty context |
-| "ISO 42001 human oversight controls" | 1/3 slots | Model doesn't cite "ISO 42001" explicitly with empty context |
-| "audit trail compliance" | 2/3 slots | Model omits "record"/"retain" variants |
-> Root cause: training examples use `context=""` — model partially declines or answers generically. In production with real retrieval context, these queries score higher.
+**Optimization score progression:**
+| Run | Context | Best Score | Notes |
+|---|---|---|---|
+| v1 (10 examples) | empty | 42.5% | Groq TPD exhausted, all trials zeroed |
+| v2 (10 examples, metric fix) | empty | 83.33% | Metric now evaluates prediction.answer |
+| v3 (15 examples, ISO 42001) | empty | 88.89% | ISO 42001 queries added |
+| v4 (15 examples, real context) | **Neon retrieval** | **97.22%** | Context prefetch — decisive improvement |
 
 **Key files:**
 - `src/dspy_modules/optimize.py` — 15-example benchmark, ISO 42001 keywords, demo count logging
@@ -168,7 +170,7 @@ python src/dspy_modules/optimize.py
 | **LangGraph tri-agent pipeline** | ✅ LIVE | set_threshold → retrieve → synthesize → verify → respond |
 | **Opik observability** | ✅ LIVE | 27+ traces at app.comet.com → project `regulens` |
 | **SHA-256 hash chain** | ✅ VERIFIED | 104 events, chain_valid: true, 0 breaks |
-| **DSPy modules** | ✅ COMPLETE | MIPROv2 88.89% (15 examples, 3 demos); `optimized_synthesizer.json` live; Instruction 2 injected into raw Groq fallback |
+| **DSPy modules** | ✅ COMPLETE | MIPROv2 **97.22%** (15 examples, real context, 3 demos); `optimized_synthesizer.json` live; Instruction 2 in raw Groq fallback |
 | **DSPy + Opik eval** | ✅ LIVE | result_count=1.0, verdict_accuracy=0.9, avg_confidence=0.9176 |
 | **Extra/method audit field** | ✅ LIVE | `extra.method: "raw_llm"` in every audit event |
 | **Persona thresholds** | ✅ LIVE | lead_auditor=0.96, legal_counsel=0.96, ml_engineer=0.88 |
