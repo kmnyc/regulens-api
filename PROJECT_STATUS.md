@@ -100,10 +100,19 @@
 
 ### DSPy MIPROv2 Optimization (2026-05-18)
 
-**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf`
+**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d`
 
-**Status:** ✅ COMPLETE — Full 11-trial MIPROv2 run finished, best score 83.33%
+**Status:** ✅ COMPLETE — ISO 42001 ingested, corpus 312 chunks, best score 88.89%, 3 demos persisted
 
+### Corpus (Neon `regulatory_chunks`)
+| Framework | Chunks |
+|---|---|
+| EU AI Act (2024/1689) | 161 |
+| NIST AI RMF 1.0 | 117 |
+| ISO/IEC 42001:2023 | 34 |
+| **Total** | **312** |
+
+### MIPROv2 Optimization Steps
 | Step | Status | Detail |
 |---|---|---|
 | Bootstrap demos | ✅ COMPLETE | `optimized_synthesizer.json` saved — 10 benchmark examples |
@@ -111,17 +120,24 @@
 | Opik callback fix | ✅ FIXED | `track_dspy()` removed in opik 1.9.x → `OpikCallback(project_name="regulens")` |
 | DeepSeek LM split | ✅ COMPLETE | `DEEPSEEK_API_KEY` → `deepseek/deepseek-chat` as both `prompt_model` and `task_model`; `dspy.configure(lm=deepseek_lm)` overrides global so ChainOfThought uses DeepSeek during trials |
 | Metric fix | ✅ COMPLETE | `claim_accuracy_metric` scores `prediction.answer` via keyword matching — no live API re-query; trials now differentiate |
-| Full MIPROv2 run | ✅ COMPLETE | 11 trials: scores [62.5, 75.0, 83.33×7, 75.0, 83.33×2]; best **83.33%** (Instruction 2 + Few-Shot Set 3) |
+| ISO 42001 ingestion | ✅ COMPLETE | `src/ingest_iso42001.py` — 34 chunks, Clauses 4–10 + Annexes A/B + fairness/transparency/oversight/accountability |
+| Full MIPROv2 run (v2) | ✅ COMPLETE | 15 examples (7 EU AI Act + 3 NIST + 5 ISO 42001); 11 trials; best **88.89%** (Instruction 0 + Few-Shot Set 5); **3 demos persisted** |
+| Instruction 2 → live | ✅ LIVE | `_call_groq` system prompt upgraded to Instruction 2; `pipeline.py` loads `optimized_synthesizer.json` when DSPy available |
 
-**Key files changed:**
-- `src/dspy_modules/optimize.py` — DeepSeek LM split + global LM override + keyword metric
-- `src/dspy_modules/optimized_synthesizer.json` — optimized program saved (Instruction 2, 83.33%)
+**Key files:**
+- `src/dspy_modules/optimize.py` — 15-example benchmark, ISO 42001 keywords, demo count logging
+- `src/dspy_modules/optimized_synthesizer.json` — 88.89% program, Instruction 0 + 3 bootstrapped demos
+- `src/ingest_iso42001.py` — ISO 42001 Neon ingestion script
+- `src/graph/pipeline.py` — loads `optimized_synthesizer.json` + Instruction 2 in raw Groq fallback
 
-**Best instruction (Instruction 2):** Step-by-step reasoning trace, explicit article citation mandate, persona-grounded tone (auditor / legal / ML engineer), context-only constraint.
+**Trial scores (v2 run):** `[77.78, 86.11, 83.33, 83.33, 69.44, 88.89, 83.33, 86.11, 77.78, 86.11, 88.89]`
+
+**Winner: Instruction 0 + Few-Shot Set 5** — base instruction with 3 bootstrapped demos outperformed DeepSeek-generated scenario prompts.
 
 **Env vars for optimization:**
 - `GROQ_API_KEY` — Groq LLM for live inference (Render server)
 - `DEEPSEEK_API_KEY` — DeepSeek for local MIPROv2 optimization
+- `DATABASE_URL` — Neon connection string (for re-ingestion)
 
 **To re-run optimization:**
 ```bash
@@ -138,7 +154,7 @@ python src/dspy_modules/optimize.py
 | **LangGraph tri-agent pipeline** | ✅ LIVE | set_threshold → retrieve → synthesize → verify → respond |
 | **Opik observability** | ✅ LIVE | 27+ traces at app.comet.com → project `regulens` |
 | **SHA-256 hash chain** | ✅ VERIFIED | 104 events, chain_valid: true, 0 breaks |
-| **DSPy modules** | ✅ COMPLETE | MIPROv2 optimized locally — 83.33% score, `optimized_synthesizer.json` saved; graceful fallback on Render free tier |
+| **DSPy modules** | ✅ COMPLETE | MIPROv2 88.89% (15 examples, 3 demos); `optimized_synthesizer.json` live; Instruction 2 injected into raw Groq fallback |
 | **DSPy + Opik eval** | ✅ LIVE | result_count=1.0, verdict_accuracy=0.9, avg_confidence=0.9176 |
 | **Extra/method audit field** | ✅ LIVE | `extra.method: "raw_llm"` in every audit event |
 | **Persona thresholds** | ✅ LIVE | lead_auditor=0.96, legal_counsel=0.96, ml_engineer=0.88 |
