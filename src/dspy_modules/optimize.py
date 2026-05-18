@@ -1,8 +1,12 @@
 """DSPy optimization script for ReguLens — MIPROv2 with Opik tracing.
 
-Run locally (requires dspy-ai installed):
-    pip3 install dspy-ai
-    python3 src/dspy_modules/optimize.py
+Run locally (requires dspy-ai and google-generativeai installed):
+    pip3 install dspy-ai google-generativeai
+    GEMINI_API_KEY=... GROQ_API_KEY=... python3 src/dspy_modules/optimize.py
+
+LM split:
+  - prompt_model (MIPROv2 instruction generation): Gemini 1.5 Flash (higher free tier limits)
+  - task_model / metric eval: Groq Llama 3.3 70B (live inference parity)
 
 DSPy is not installed on Render free tier — this runs offline only.
 Opik traces optimization trials if OPIK_API_KEY is set.
@@ -129,6 +133,26 @@ def claim_accuracy_metric(example, prediction, trace=None) -> float:
 
 # ── DSPy optimization ──────────────────────────────────────────────────────────
 
+def _build_gemini_lm(dspy):
+    """Build Gemini Flash LM for MIPROv2 instruction generation. Returns None if key missing."""
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        print("WARNING: GEMINI_API_KEY not set — MIPROv2 will use Groq for instruction generation too.")
+        return None
+    try:
+        lm = dspy.LM(
+            model="gemini/gemini-1.5-flash",
+            api_key=gemini_key,
+            temperature=0.9,
+            max_tokens=2048,
+        )
+        print("Gemini 1.5 Flash configured as MIPROv2 prompt_model.")
+        return lm
+    except Exception as exc:
+        print(f"Gemini LM init failed (falling back to Groq for instructions): {exc}")
+        return None
+
+
 def run_optimization():
     try:
         import dspy
@@ -144,9 +168,16 @@ def run_optimization():
         print("ERROR: GROQ_API_KEY not set. Cannot run optimization.")
         sys.exit(1)
 
+    # Groq is now the global task LM (set by configure_dspy above)
+    groq_lm = dspy.settings.lm
+    gemini_lm = _build_gemini_lm(dspy)
+    prompt_model = gemini_lm if gemini_lm is not None else groq_lm
+
     from src.dspy_modules.modules import ReguLensSynthesizer
 
     print(f"\nRunning MIPROv2 optimization on {len(BENCHMARK_EXAMPLES)} examples...")
+    print(f"  prompt_model (instruction gen): {'Gemini Flash' if gemini_lm else 'Groq (fallback)'}")
+    print(f"  task_model   (metric eval):     Groq llama-3.3-70b-versatile")
     print("This calls the LIVE API and takes 5-10 minutes.\n")
 
     trainset = [
@@ -163,6 +194,8 @@ def run_optimization():
     try:
         optimizer = dspy.MIPROv2(
             metric=claim_accuracy_metric,
+            prompt_model=prompt_model,
+            task_model=groq_lm,
             auto="light",
             num_threads=1,
         )
