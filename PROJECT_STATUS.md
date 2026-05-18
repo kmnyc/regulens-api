@@ -1,8 +1,8 @@
 # ReguLens — Project Status
 
-> **Last Updated:** 2026-05-18
+> **Last Updated:** 2026-05-18 (DSPy MIPROv2 optimization complete — 83.33% best score)
 > **Updated By:** Kareem Mohammed
-> **Version:** v3.0 (Live Deployment — Caveman Prompts v3 ALL COMPLETE ✅)
+> **Version:** v3.2 (DSPy MIPROv2 fully optimized)
 
 ---
 
@@ -67,7 +67,7 @@
 | **Frontend** | GitHub Pages (static, `frontend-v2/`) |
 | **Orchestration** | LangGraph StateGraph (being added — Prompt 2) |
 | **Observability** | Opik / Comet (being added — Prompt 3) |
-| **Prompt Optimization** | DSPy (being added — Prompt 4) |
+| **Prompt Optimization** | DSPy MIPROv2 ✅ COMPLETE — 83.33% keyword score (Instruction 2 + Few-Shot Set 3) |
 | **Audit Trail** | SHA-256 hash-chained `audit_events` in Neon PostgreSQL (being added — Prompt 1) |
 
 ### Key Environment Variables (set in Render Dashboard)
@@ -78,6 +78,7 @@
 | `OPIK_API_KEY` | Opik observability (added in Prompt 3) |
 | `OPIK_WORKSPACE` | Opik workspace name (added in Prompt 3) |
 | `OPIK_PROJECT_NAME` | Set to `regulens` (added in Prompt 3) |
+| `DEEPSEEK_API_KEY` | DeepSeek deepseek-chat (optional — used as MIPROv2 prompt_model + task_model for local optimization) |
 
 ---
 
@@ -93,13 +94,51 @@
 **Final commit:** `93572e9`
 **Current state:** ALL 6 PROMPTS COMPLETE ✅ — Full stack validated: LangGraph + DSPy (graceful fallback) + Opik tracing (27+ traces) + SHA-256 hash chain (104 immutable events)
 
+---
+
+## Post-Caveman v3 Work
+
+### DSPy MIPROv2 Optimization (2026-05-18)
+
+**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf`
+
+**Status:** ✅ COMPLETE — Full 11-trial MIPROv2 run finished, best score 83.33%
+
+| Step | Status | Detail |
+|---|---|---|
+| Bootstrap demos | ✅ COMPLETE | `optimized_synthesizer.json` saved — 10 benchmark examples |
+| MIPROv2 API fixes | ✅ FIXED | `auto="light"`, `requires_permission_to_run=False` (dspy 2.6.x compat) |
+| Opik callback fix | ✅ FIXED | `track_dspy()` removed in opik 1.9.x → `OpikCallback(project_name="regulens")` |
+| DeepSeek LM split | ✅ COMPLETE | `DEEPSEEK_API_KEY` → `deepseek/deepseek-chat` as both `prompt_model` and `task_model`; `dspy.configure(lm=deepseek_lm)` overrides global so ChainOfThought uses DeepSeek during trials |
+| Metric fix | ✅ COMPLETE | `claim_accuracy_metric` scores `prediction.answer` via keyword matching — no live API re-query; trials now differentiate |
+| Full MIPROv2 run | ✅ COMPLETE | 11 trials: scores [62.5, 75.0, 83.33×7, 75.0, 83.33×2]; best **83.33%** (Instruction 2 + Few-Shot Set 3) |
+
+**Key files changed:**
+- `src/dspy_modules/optimize.py` — DeepSeek LM split + global LM override + keyword metric
+- `src/dspy_modules/optimized_synthesizer.json` — optimized program saved (Instruction 2, 83.33%)
+
+**Best instruction (Instruction 2):** Step-by-step reasoning trace, explicit article citation mandate, persona-grounded tone (auditor / legal / ML engineer), context-only constraint.
+
+**Env vars for optimization:**
+- `GROQ_API_KEY` — Groq LLM for live inference (Render server)
+- `DEEPSEEK_API_KEY` — DeepSeek for local MIPROv2 optimization
+
+**To re-run optimization:**
+```bash
+export GROQ_API_KEY=...
+export DEEPSEEK_API_KEY=...
+export OPIK_API_KEY=...
+pip install dspy-ai>=2.6.0
+python src/dspy_modules/optimize.py
+```
+
 ### Final Live State
 | Component | Status | Detail |
 |---|---|---|
 | **LangGraph tri-agent pipeline** | ✅ LIVE | set_threshold → retrieve → synthesize → verify → respond |
 | **Opik observability** | ✅ LIVE | 27+ traces at app.comet.com → project `regulens` |
 | **SHA-256 hash chain** | ✅ VERIFIED | 104 events, chain_valid: true, 0 breaks |
-| **DSPy modules** | ✅ CODE READY | Deferred to paid tier — too heavy for Render free Docker build |
+| **DSPy modules** | ✅ COMPLETE | MIPROv2 optimized locally — 83.33% score, `optimized_synthesizer.json` saved; graceful fallback on Render free tier |
 | **DSPy + Opik eval** | ✅ LIVE | result_count=1.0, verdict_accuracy=0.9, avg_confidence=0.9176 |
 | **Extra/method audit field** | ✅ LIVE | `extra.method: "raw_llm"` in every audit event |
 | **Persona thresholds** | ✅ LIVE | lead_auditor=0.96, legal_counsel=0.96, ml_engineer=0.88 |
@@ -107,8 +146,8 @@
 | **Frontend** | ✅ LIVE | https://kmnyc.github.io/ReguLens-TechM/ |
 | **API** | ✅ LIVE | https://regulens-api-bnlw.onrender.com |
 
-### DSPy Deferred Note
-DSPy (`dspy-ai` package) exceeds Render free tier Docker build limits (heavy transitive deps: datasets, optuna, litellm). Code is complete and tested locally. To re-enable: upgrade to Render paid tier OR uncomment `dspy-ai>=2.5.0` in `requirements.txt` and redeploy on a capable host.
+### DSPy Note
+DSPy (`dspy-ai` package) exceeds Render free tier Docker build limits (heavy transitive deps: datasets, optuna, litellm). Optimization runs locally; `optimized_synthesizer.json` artifact is committed to repo. Live server runs graceful raw-LLM fallback. To enable DSPy on server: upgrade to Render paid tier OR uncomment `dspy-ai>=2.5.0` in `requirements.txt` and redeploy on a capable host.
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
