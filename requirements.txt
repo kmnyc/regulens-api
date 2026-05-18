@@ -7,4 +7,4 @@ langgraph>=0.2.0
 langchain-core>=0.3.0
 requests>=2.31.0
 opik>=1.9.0
-dspy-ai>=2.5.0
+# dspy-ai>=2.5.0  # too heavy for Render free tier — DSPy gracefully disabled on deploy, active locally
