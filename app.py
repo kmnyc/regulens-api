@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Any
 
 import psycopg2
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from src.services.audit_chain import (
+    GENESIS_HASH,
+    ensure_table as _ensure_audit_table,
+    log_event as _log_audit_event,
+    list_events as _list_audit_events,
+    verify_chain as _verify_audit_chain,
+)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +30,6 @@ DB_DSN = (
     f"password={os.getenv('DB_PASSWORD', '')}"
 )
 
-# Prefer DATABASE_URL (Neon / Render) over individual vars
 _DATABASE_URL = os.getenv("DATABASE_URL")
 
 PERSONA_THRESHOLDS: dict[str, float] = {
@@ -35,9 +39,6 @@ PERSONA_THRESHOLDS: dict[str, float] = {
 }
 
 CONFIDENCE_FLAG = 0.60
-
-# SHA-256 hex string used as prev_hash for the very first audit event
-GENESIS_HASH = "0" * 64
 
 # ── Embedding model (ONNX via fastembed — ~150MB RAM, no torch) ────────────────
 
@@ -50,10 +51,8 @@ async def lifespan(app: FastAPI):
     from fastembed import TextEmbedding
     print("Loading all-MiniLM-L6-v2 via fastembed...")
     _embed_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
-    # Warm up
     list(_embed_model.embed(["warmup"]))
     print("Model ready.")
-    # Create audit table if it doesn't exist yet
     _ensure_audit_table()
     print("Audit table ready.")
     yield
@@ -165,112 +164,10 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
     return rows
 
 
-# ── Audit chain helpers ────────────────────────────────────────────────────────
-
-
-def _ensure_audit_table() -> None:
-    """Create audit_chain_events table — separate from legacy audit_events schema."""
-    ddl = """
-    CREATE TABLE IF NOT EXISTS audit_chain_events (
-        event_id       TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-        event_type     TEXT        NOT NULL DEFAULT 'query',
-        persona        TEXT,
-        query_text     TEXT,
-        verdict        TEXT,
-        result_count   INT,
-        avg_confidence DOUBLE PRECISION,
-        extra_json     JSONB,
-        prev_hash      TEXT        NOT NULL,
-        event_hash     TEXT        NOT NULL UNIQUE
-    );
-    CREATE INDEX IF NOT EXISTS ix_audit_chain_created_at
-        ON audit_chain_events (created_at DESC);
-    """
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(ddl)
-        conn.commit()
-        cur.close()
-    finally:
-        conn.close()
-
-
-def _compute_event_hash(data: dict[str, Any], prev_hash: str) -> str:
-    """SHA-256 over deterministic JSON of event fields + prev_hash."""
-    payload = json.dumps({**data, "prev_hash": prev_hash}, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _get_prev_hash(cur) -> str:
-    """Return the event_hash of the latest row in audit_chain_events, or GENESIS_HASH."""
-    cur.execute(
-        "SELECT event_hash FROM audit_chain_events ORDER BY created_at DESC LIMIT 1"
-    )
-    row = cur.fetchone()
-    return row[0] if row else GENESIS_HASH
-
-
-def _log_audit_event(
-    event_type: str,
-    persona: str | None = None,
-    query_text: str | None = None,
-    verdict: str | None = None,
-    result_count: int | None = None,
-    avg_confidence: float | None = None,
-    extra: dict | None = None,
-) -> str:
-    """Insert one hash-chained audit event. Returns the new event_id."""
-    import uuid as _uuid
-    event_id = str(_uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
-
-    data: dict[str, Any] = {
-        "event_id":       event_id,
-        "created_at":     created_at,
-        "event_type":     event_type,
-        "persona":        persona,
-        "query_text":     query_text,
-        "verdict":        verdict,
-        "result_count":   result_count,
-        "avg_confidence": avg_confidence,
-    }
-
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        prev_hash = _get_prev_hash(cur)
-        event_hash = _compute_event_hash(data, prev_hash)
-
-        cur.execute(
-            """
-            INSERT INTO audit_chain_events
-                (event_id, created_at, event_type, persona, query_text,
-                 verdict, result_count, avg_confidence, extra_json,
-                 prev_hash, event_hash)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                event_id,
-                created_at,
-                event_type,
-                persona,
-                query_text,
-                verdict,
-                result_count,
-                avg_confidence,
-                json.dumps(extra) if extra else None,
-                prev_hash,
-                event_hash,
-            ),
-        )
-        conn.commit()
-        cur.close()
-    finally:
-        conn.close()
-
-    return event_id
+def _embed(text: str) -> list[float]:
+    if _embed_model is None:
+        raise RuntimeError("Model not loaded")
+    return list(list(_embed_model.embed([text[:512]]))[0])
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -298,7 +195,6 @@ def run_query(body: QueryRequest) -> QueryResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
-    # Keyword boost: if query names "Article N", lift matching chunk similarity
     article_mentions = {
         m.group(0).lower()
         for m in re.finditer(r"article\s+\d+", body.query, re.IGNORECASE)
@@ -307,14 +203,10 @@ def run_query(body: QueryRequest) -> QueryResponse:
     results: list[ChunkResult] = []
     for row in raw:
         sim: float = float(row["similarity"])
-
-        # Boost if chunk article_ref matches an explicit article mention in query
         ref_lower = (row["article_ref"] or "").lower()
         if any(mention in ref_lower or ref_lower in mention for mention in article_mentions):
             sim = min(1.0, sim + 0.15)
 
-        # Map raw cosine similarity to confidence:
-        # 0.70 → 1.0,  0.66 → 0.96,  0.60 → 0.90,  0.50 → 0.77
         if sim >= 0.60:
             confidence = round(min(1.0, 0.90 + (sim - 0.60) * 1.0), 4)
         elif sim >= 0.45:
@@ -339,10 +231,8 @@ def run_query(body: QueryRequest) -> QueryResponse:
             )
         )
 
-    # Sort by similarity descending after boost
     results.sort(key=lambda r: r.similarity, reverse=True)
 
-    # Determine overall verdict for audit log
     if results:
         overall_verdict = results[0].verdict
         avg_conf = round(sum(r.confidence for r in results) / len(results), 4)
@@ -350,7 +240,6 @@ def run_query(body: QueryRequest) -> QueryResponse:
         overall_verdict = "NO_RESULTS"
         avg_conf = 0.0
 
-    # Log tamper-evident audit event (fire-and-forget; don't fail the query if DB is down)
     audit_event_id: str | None = None
     try:
         audit_event_id = _log_audit_event(
@@ -373,145 +262,14 @@ def run_query(body: QueryRequest) -> QueryResponse:
     )
 
 
-
 @app.get("/api/audit/events", response_model=list[AuditEvent])
 def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
     """Return audit events in descending order (newest first)."""
-    if limit > 500:
-        limit = 500
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT event_id, created_at, event_type, persona, query_text,
-                   verdict, result_count, avg_confidence, prev_hash, event_hash
-            FROM audit_chain_events
-            ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
-            """,
-            (limit, offset),
-        )
-        cols = (
-            "event_id", "created_at", "event_type", "persona",
-            "query_text", "verdict", "result_count", "avg_confidence",
-            "prev_hash", "event_hash",
-        )
-        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
-        cur.close()
-    finally:
-        conn.close()
-
-    return [
-        AuditEvent(
-            event_id=str(r["event_id"]),
-            created_at=r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
-            event_type=r["event_type"] or "query",
-            persona=r["persona"],
-            query_text=r["query_text"],
-            verdict=r["verdict"],
-            result_count=r["result_count"],
-            avg_confidence=r["avg_confidence"],
-            prev_hash=r["prev_hash"] or GENESIS_HASH,
-            event_hash=r["event_hash"] or "",
-        )
-        for r in rows
-    ]
+    rows = _list_audit_events(limit=limit, offset=offset)
+    return [AuditEvent(**r) for r in rows]
 
 
 @app.get("/api/audit/verify", response_model=AuditVerifyResponse)
 def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
-    """Walk the chain oldest→newest and re-derive each hash. Reports first break.
-
-    skip_legacy=true (default): excludes rows with event_hash='' (pre-chain-era rows).
-    skip_legacy=false: includes all rows; legacy rows will always fail verification.
-    """
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT event_id, created_at, event_type, persona, query_text,
-                   verdict, result_count, avg_confidence, prev_hash, event_hash
-            FROM audit_chain_events
-            ORDER BY created_at ASC
-            """
-        )
-        cols = (
-            "event_id", "created_at", "event_type", "persona",
-            "query_text", "verdict", "result_count", "avg_confidence",
-            "prev_hash", "event_hash",
-        )
-        all_rows = [dict(zip(cols, row)) for row in cur.fetchall()]
-        cur.close()
-    finally:
-        conn.close()
-
-    legacy = [r for r in all_rows if not r["event_hash"]]
-    chained = [r for r in all_rows if r["event_hash"]]
-    rows = chained if skip_legacy else all_rows
-    legacy_skipped = len(legacy) if skip_legacy else 0
-
-    if not rows:
-        msg = (
-            f"No chained audit events yet. {legacy_skipped} legacy row(s) skipped."
-            if legacy_skipped else "No audit events yet."
-        )
-        return AuditVerifyResponse(
-            total_events=0,
-            legacy_rows_skipped=legacy_skipped,
-            chain_valid=True,
-            broken_at_event_id=None,
-            message=msg,
-        )
-
-    expected_prev = GENESIS_HASH
-    for row in rows:
-        eid = str(row["event_id"])
-        if row["prev_hash"] != expected_prev:
-            return AuditVerifyResponse(
-                total_events=len(rows),
-                legacy_rows_skipped=legacy_skipped,
-                chain_valid=False,
-                broken_at_event_id=eid,
-                message=f"Chain broken at event {eid}: prev_hash mismatch.",
-            )
-
-        data = {
-            "event_id":       eid,
-            "created_at":     row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
-            "event_type":     row["event_type"],
-            "persona":        row["persona"],
-            "query_text":     row["query_text"],
-            "verdict":        row["verdict"],
-            "result_count":   row["result_count"],
-            "avg_confidence": row["avg_confidence"],
-        }
-        computed = _compute_event_hash(data, row["prev_hash"])
-        if computed != row["event_hash"]:
-            return AuditVerifyResponse(
-                total_events=len(rows),
-                legacy_rows_skipped=legacy_skipped,
-                chain_valid=False,
-                broken_at_event_id=eid,
-                message=f"Chain broken at event {eid}: event_hash mismatch (data tampered).",
-            )
-
-        expected_prev = row["event_hash"]
-
-    return AuditVerifyResponse(
-        total_events=len(rows),
-        legacy_rows_skipped=legacy_skipped,
-        chain_valid=True,
-        broken_at_event_id=None,
-        message=f"All {len(rows)} chained event(s) verified. Chain intact. {legacy_skipped} legacy row(s) skipped.",
-    )
-
-
-# ── Embed helper (defined after model global) ──────────────────────────────────
-
-
-def _embed(text: str) -> list[float]:
-    if _embed_model is None:
-        raise RuntimeError("Model not loaded")
-    return list(list(_embed_model.embed([text[:512]]))[0])
+    """Walk chain oldest→newest, re-derive hashes, report first break."""
+    return AuditVerifyResponse(**_verify_audit_chain(skip_legacy=skip_legacy))
