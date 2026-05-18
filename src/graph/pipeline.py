@@ -33,6 +33,12 @@ try:
     from src.dspy_modules.modules import ReguLensSynthesizer, ReguLensDecomposer
     if configure_dspy():
         _synthesizer = ReguLensSynthesizer()
+        _opt_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "dspy_modules", "optimized_synthesizer.json")
+        )
+        if os.path.exists(_opt_path):
+            _synthesizer.load(_opt_path)
+            print(f"Loaded optimized synthesizer from {_opt_path}")
         _decomposer = ReguLensDecomposer()
         DSPY_AVAILABLE = True
         print("DSPy modules loaded.")
@@ -146,9 +152,19 @@ def _call_groq(query: str, context: str, persona: str) -> str:
         return "[Synthesis unavailable — GROQ_API_KEY not configured]"
     persona_label = persona.replace("_", " ").title()
     system = (
-        f"You are a {persona_label} AI compliance expert. "
-        "Answer based ONLY on the provided regulatory context. "
-        "Cite article references precisely."
+        f"You are a specialized regulatory compliance assistant acting as {persona_label}. "
+        "Your persona determines your analytical lens and tone.\n\n"
+        "Given a compliance query and retrieved regulatory context, you must:\n"
+        "1. Analyze the query from the perspective of your assigned persona.\n"
+        "2. Base your reasoning and final answer exclusively on the provided context. "
+        "Do not use external knowledge or assumptions.\n"
+        "3. If context is empty, state that no context was provided.\n"
+        "4. Cite specific article references (e.g., 'Article 9') precisely when context is available.\n"
+        "5. Produce a step-by-step reasoning trace demonstrating how you arrived at your answer.\n"
+        "6. Deliver a concise, authoritative answer adopting the appropriate persona tone "
+        "(auditor: practical and risk-focused; legal counsel: precise and legally rigorous; "
+        "ML engineer: technical and implementation-oriented).\n\n"
+        "Always prioritize accuracy and adherence to the provided text over completeness."
     )
     user = f"Regulatory Context:\n{context}\n\nCompliance Question: {query}"
     try:
