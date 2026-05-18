@@ -196,8 +196,13 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "chunks_loaded": _chunk_count()}
 
 
-@app.post("/api/query", response_model=QueryResponse)
-def run_query(body: QueryRequest) -> QueryResponse:
+@app.post("/api/v1/query", response_model=QueryResponse)
+def run_query_v1(body: QueryRequest) -> QueryResponse:
+    """Legacy semantic-search-only endpoint — kept as stable fallback."""
+    return _run_semantic_query(body)
+
+
+def _run_semantic_query(body: QueryRequest) -> QueryResponse:
     if _embed_model is None:
         raise HTTPException(status_code=503, detail="Model not ready")
 
@@ -280,9 +285,60 @@ def run_query(body: QueryRequest) -> QueryResponse:
     )
 
 
+@app.post("/api/query", response_model=QueryResponse)
+async def run_query(body: QueryRequest) -> QueryResponse:
+    """LangGraph-backed primary endpoint. /api/v1/query is the semantic-search fallback."""
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Model not ready")
+    if _regulens_graph is None:
+        raise HTTPException(status_code=503, detail="LangGraph pipeline not initialized")
+
+    initial_state: dict = {
+        "query": body.query,
+        "persona": body.persona,
+        "threshold": 0.0,
+        "retrieved_chunks": [],
+        "retrieval_count": 0,
+        "raw_answer": "",
+        "claims": [],
+        "overall_verdict": "",
+        "avg_confidence": 0.0,
+        "failure_count": 0,
+        "retry_count": 0,
+        "audit_hashes": [],
+    }
+
+    try:
+        result = await _regulens_graph.ainvoke(initial_state)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {exc}") from exc
+
+    chunks = result.get("retrieved_chunks", [])
+    threshold = result.get("threshold", 0.0)
+    results = [
+        ChunkResult(
+            article_ref=c.get("article_ref", "—"),
+            content=c.get("content", ""),
+            similarity=float(c.get("similarity", 0.0)),
+            verdict=c.get("verdict", "BLOCK"),
+            confidence=float(c.get("confidence", 0.0)),
+        )
+        for c in chunks
+    ]
+
+    hashes = result.get("audit_hashes") or []
+    return QueryResponse(
+        results=results,
+        persona=result.get("persona", body.persona),
+        threshold=threshold,
+        query=result.get("query", body.query),
+        audit_event_id=hashes[0] if hashes else None,
+    )
+
+
 @app.post("/api/v2/query", response_model=QueryV2Response)
 async def run_query_v2(body: QueryRequest) -> QueryV2Response:
-    """LangGraph tri-agent pipeline (parallel endpoint — /api/query unmodified)."""
+    """LangGraph tri-agent pipeline — full response including raw_answer and claims."""
     if _embed_model is None:
         raise HTTPException(status_code=503, detail="Model not ready")
     if _regulens_graph is None:
