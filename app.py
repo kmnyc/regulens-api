@@ -170,9 +170,9 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
 
 
 def _ensure_audit_table() -> None:
-    """Create audit_events table (or migrate existing) to include hash-chain columns."""
+    """Create audit_events table (or migrate existing) to include all expected columns."""
     statements = [
-        # Create table if missing entirely
+        # Create table if missing entirely — safe no-op if it exists
         """
         CREATE TABLE IF NOT EXISTS audit_events (
             id             BIGSERIAL    PRIMARY KEY,
@@ -186,16 +186,22 @@ def _ensure_audit_table() -> None:
             avg_confidence DOUBLE PRECISION,
             extra_json     JSONB,
             prev_hash      TEXT         NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
-            event_hash     TEXT         NOT NULL DEFAULT '' UNIQUE
+            event_hash     TEXT         NOT NULL DEFAULT ''
         )
         """,
-        # Add hash-chain columns to pre-existing table (ALTER TABLE ADD COLUMN IF NOT EXISTS)
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS prev_hash TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS extra_json JSONB",
-        # Unique index on event_hash (skip if already exists)
+        # Idempotent column migrations — cover any pre-existing table schema
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_id       TEXT         NOT NULL DEFAULT gen_random_uuid()::text",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_type     TEXT         NOT NULL DEFAULT 'query'",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS persona        TEXT",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS query_text     TEXT",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS verdict        TEXT",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS result_count   INT",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS avg_confidence DOUBLE PRECISION",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS extra_json     JSONB",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS prev_hash      TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash     TEXT NOT NULL DEFAULT ''",
+        # Partial unique index — only enforces uniqueness on real chained rows
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_audit_events_event_hash ON audit_events (event_hash) WHERE event_hash <> ''",
-        # Index for recency queries
         "CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events (created_at DESC)",
     ]
     conn = _get_conn()
