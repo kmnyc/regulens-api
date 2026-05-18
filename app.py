@@ -404,6 +404,47 @@ def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
     return [AuditEvent(**r) for r in rows]
 
 
+@app.get("/api/debug/extra")
+def debug_extra() -> dict:
+    """Diagnostic: write + read back a test audit event to verify extra_json storage."""
+    from src.services.audit_chain import log_event
+    import psycopg2
+
+    test_extra = {"debug": True, "method": "dspy", "version": 4}
+    try:
+        event_id = log_event(
+            event_type="debug_test",
+            persona="debug",
+            query_text="debug extra_json check",
+            verdict="TEST",
+            extra=test_extra,
+        )
+    except Exception as exc:
+        return {"error": f"log_event failed: {exc}"}
+
+    # Read raw from DB bypassing list_events
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT extra_json, pg_typeof(extra_json)::text FROM audit_chain_events WHERE event_id = %s",
+            (event_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        raw_val, pg_type = (row[0], row[1]) if row else (None, None)
+        return {
+            "event_id": event_id,
+            "raw_extra_json": raw_val,
+            "pg_type": pg_type,
+            "python_type": type(raw_val).__name__,
+            "expected": test_extra,
+        }
+    except Exception as exc:
+        return {"event_id": event_id, "read_error": str(exc)}
+
+
 @app.get("/api/audit/verify", response_model=AuditVerifyResponse)
 def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
     """Walk chain oldest→newest, re-derive hashes, report first break."""

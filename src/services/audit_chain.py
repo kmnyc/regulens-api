@@ -68,8 +68,15 @@ def _row_to_dict(cols: tuple, row: tuple) -> dict[str, Any]:
     d["prev_hash"] = d["prev_hash"] or GENESIS_HASH
     d["event_hash"] = d["event_hash"] or ""
     raw_extra = d.pop("extra_json", None)
-    # psycopg2 deserializes JSONB → Python dict automatically
-    d["extra"] = raw_extra if isinstance(raw_extra, dict) else {}
+    if isinstance(raw_extra, dict):
+        d["extra"] = raw_extra
+    elif isinstance(raw_extra, str):
+        try:
+            d["extra"] = json.loads(raw_extra)
+        except Exception:
+            d["extra"] = {}
+    else:
+        d["extra"] = None  # NULL in DB — don't mask with empty dict
     return d
 
 
