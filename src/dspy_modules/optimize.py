@@ -6,7 +6,8 @@ Run locally (requires dspy-ai installed):
 
 LM split:
   - prompt_model (MIPROv2 instruction generation): DeepSeek deepseek-chat
-  - task_model / metric eval: Groq Llama 3.3 70B (live inference parity)
+  - task_model (trial eval): DeepSeek deepseek-chat
+  - metric: keyword matching against prediction.answer — no live API calls
 
 DSPy is not installed on Render free tier — this runs offline only.
 Opik traces optimization trials if OPIK_API_KEY is set.
@@ -16,8 +17,6 @@ from __future__ import annotations
 
 import os
 import sys
-
-LIVE_API = "https://regulens-api-bnlw.onrender.com"
 
 # ── Opik tracing setup ─────────────────────────────────────────────────────────
 
@@ -105,30 +104,44 @@ BENCHMARK_EXAMPLES = [
 
 # ── Metric ─────────────────────────────────────────────────────────────────────
 
-def claim_accuracy_metric(example, prediction, trace=None) -> float:
-    """Fraction of PASS verdicts in retrieved chunks."""
-    import time
-    import requests
+# Required keywords per query — matched against prediction.answer (case-insensitive).
+# Score = fraction of keywords present. Rewards answers that cite specific articles/controls.
+_QUERY_KEYWORDS: dict[str, list[str]] = {
+    "article 9":     ["article 9", "risk management", "high-risk"],
+    "article 13":    ["article 13", "transparency", "information"],
+    "govern function": ["govern", "governance", "accountability"],
+    "article 14":    ["article 14", "human oversight", "oversight"],
+    "article 11":    ["article 11", "documentation", "technical"],
+    "map function":  ["map", "risk", "context"],
+    "article 5":     ["article 5", "prohibited", "unacceptable"],
+    "article 43":    ["article 43", "conformity", "assessment"],
+    "audit trail":   ["log", "audit", "record"],
+    "article 15":    ["article 15", "accuracy", "robustness"],
+}
 
-    time.sleep(5)  # Groq free tier TPM limit — 12k TPM, space out calls
-    try:
-        resp = requests.post(
-            f"{LIVE_API}/api/v2/query",
-            json={"query": example["query"], "persona": example["persona"]},
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        claims = data.get("claims", [])
-        if not claims:
-            return 0.0
-        passed = sum(1 for c in claims if c.get("verdict") == "PASS")
-        score = round(passed / len(claims), 4)
-        print(f"  metric: {passed}/{len(claims)} PASS → {score}")
-        return score
-    except Exception as exc:
-        print(f"  metric error: {exc}")
+# Generic compliance signals used when no specific keyword set matches
+_GENERIC_KEYWORDS = ["article", "nist", "iso", "compliance", "requirement", "regulation"]
+
+
+def claim_accuracy_metric(example, prediction, trace=None) -> float:
+    """Fraction of expected keywords present in prediction.answer."""
+    answer = getattr(prediction, "answer", "") or ""
+    if not answer.strip():
+        print(f"  metric: empty answer → 0.0")
         return 0.0
+
+    answer_lower = answer.lower()
+    query_lower = example["query"].lower()
+
+    keywords = next(
+        (kws for key, kws in _QUERY_KEYWORDS.items() if key in query_lower),
+        _GENERIC_KEYWORDS,
+    )
+
+    matched = sum(1 for k in keywords if k in answer_lower)
+    score = round(matched / len(keywords), 4)
+    print(f"  metric: {matched}/{len(keywords)} keywords → {score} | '{example['query'][:55]}'")
+    return score
 
 
 # ── DSPy optimization ──────────────────────────────────────────────────────────
@@ -183,7 +196,7 @@ def run_optimization():
     print(f"\nRunning MIPROv2 optimization on {len(BENCHMARK_EXAMPLES)} examples...")
     print(f"  prompt_model (instruction gen): {lm_name}")
     print(f"  task_model   (trial eval):      {lm_name}")
-    print("This calls the LIVE API and takes 5-10 minutes.\n")
+    print("Metric uses keyword matching on prediction.answer — no live API calls.\n")
 
     trainset = [
         dspy.Example(
