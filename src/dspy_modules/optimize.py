@@ -132,35 +132,38 @@ BENCHMARK_EXAMPLES = [
 
 # ── Metric ─────────────────────────────────────────────────────────────────────
 
-# Required keywords per query — matched against prediction.answer (case-insensitive).
-# Score = fraction of keywords present. Rewards answers that cite specific articles/controls.
-_QUERY_KEYWORDS: dict[str, list[str]] = {
+# Synonym-group keyword map: each entry is a list of slots.
+# A slot is a list of synonyms — slot is matched if ANY synonym appears in the answer.
+# Score = fraction of slots matched. Each slot tests one distinct concept.
+_QUERY_KEYWORDS: dict[str, list[list[str]]] = {
     # EU AI Act
-    "article 9":       ["article 9", "risk management", "high-risk"],
-    "article 13":      ["article 13", "transparency", "information"],
-    "article 14":      ["article 14", "human oversight", "oversight"],
-    "article 11":      ["article 11", "documentation", "technical"],
-    "article 5":       ["article 5", "prohibited", "unacceptable"],
-    "article 43":      ["article 43", "conformity", "assessment"],
-    "article 15":      ["article 15", "accuracy", "robustness"],
+    "article 9":       [["article 9"], ["risk management"], ["high-risk"]],
+    "article 13":      [["article 13"], ["transparency"], ["information"]],
+    "article 14":      [["article 14"], ["human oversight", "oversight"], ["oversight"]],
+    "article 11":      [["article 11"], ["documentation", "documented"], ["technical"]],
+    "article 5":       [["article 5"], ["prohibited"], ["unacceptable", "forbidden", "banned", "impermissible"]],
+    "article 43":      [["article 43"], ["conformity"], ["assessment"]],
+    "article 15":      [["article 15"], ["accuracy"], ["robustness", "resilience", "robust"]],
     # NIST AI RMF
-    "govern function": ["govern", "governance", "accountability"],
-    "map function":    ["map", "risk", "context"],
-    "audit trail":     ["log", "audit", "record"],
+    "govern function": [["govern", "governance"], ["governance", "policy", "policies"], ["accountability", "accountab"]],
+    "map function":    [["map"], ["risk"], ["context", "categor"]],
+    "audit trail":     [["log", "logging"], ["audit"], ["record", "records", "retain", "track"]],
     # ISO 42001
-    "iso 42001 clause 6":    ["iso 42001", "risk", "assessment"],
-    "iso 42001 requirements for ai system impact": ["impact", "assessment", "iso 42001"],
-    "iso 42001 clause 9":    ["iso 42001", "performance", "evaluation"],
-    "transparency and explainability obligations does iso": ["transparency", "explainability", "iso 42001"],
-    "human oversight controls does iso 42001": ["human oversight", "iso 42001", "control"],
+    "iso 42001 clause 6":    [["iso 42001", "iso/iec 42001", "42001"], ["risk"], ["assessment"]],
+    "iso 42001 requirements for ai system impact": [["impact"], ["assessment"], ["iso 42001", "iso/iec 42001", "42001"]],
+    "iso 42001 clause 9":    [["iso 42001", "iso/iec 42001", "42001"], ["performance"], ["evaluation", "monitor", "measur"]],
+    "transparency and explainability obligations does iso": [["transparency", "transparent"], ["explainab"], ["iso 42001", "iso/iec 42001", "42001"]],
+    "human oversight controls does iso 42001": [["oversight", "human oversight"], ["iso 42001", "iso/iec 42001", "42001"], ["control", "mechanism", "require", "oversight"]],
 }
 
-# Generic compliance signals used when no specific keyword set matches
-_GENERIC_KEYWORDS = ["article", "nist", "iso", "compliance", "requirement", "regulation"]
+# Generic compliance signals — any 1 match from this flat list returns partial score
+_GENERIC_KEYWORDS: list[list[str]] = [
+    ["article"], ["nist"], ["iso"], ["compliance", "comply"], ["requirement"], ["regulation"]
+]
 
 
 def claim_accuracy_metric(example, prediction, trace=None) -> float:
-    """Fraction of expected keywords present in prediction.answer."""
+    """Fraction of concept slots matched in prediction.answer (any synonym per slot)."""
     answer = getattr(prediction, "answer", "") or ""
     if not answer.strip():
         print(f"  metric: empty answer → 0.0")
@@ -169,14 +172,14 @@ def claim_accuracy_metric(example, prediction, trace=None) -> float:
     answer_lower = answer.lower()
     query_lower = example["query"].lower()
 
-    keywords = next(
+    slots = next(
         (kws for key, kws in _QUERY_KEYWORDS.items() if key in query_lower),
         _GENERIC_KEYWORDS,
     )
 
-    matched = sum(1 for k in keywords if k in answer_lower)
-    score = round(matched / len(keywords), 4)
-    print(f"  metric: {matched}/{len(keywords)} keywords → {score} | '{example['query'][:55]}'")
+    matched = sum(1 for slot in slots if any(k in answer_lower for k in slot))
+    score = round(matched / len(slots), 4)
+    print(f"  metric: {matched}/{len(slots)} slots → {score} | '{example['query'][:55]}'")
     return score
 
 
