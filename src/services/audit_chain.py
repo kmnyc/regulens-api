@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+
+from psycopg2.extras import Json as PgJson
 import os
 import uuid
 from datetime import datetime, timezone
@@ -66,15 +68,8 @@ def _row_to_dict(cols: tuple, row: tuple) -> dict[str, Any]:
     d["prev_hash"] = d["prev_hash"] or GENESIS_HASH
     d["event_hash"] = d["event_hash"] or ""
     raw_extra = d.pop("extra_json", None)
-    if isinstance(raw_extra, str):
-        try:
-            d["extra"] = json.loads(raw_extra)
-        except Exception:
-            d["extra"] = {}
-    elif isinstance(raw_extra, dict):
-        d["extra"] = raw_extra
-    else:
-        d["extra"] = {}
+    # psycopg2 deserializes JSONB → Python dict automatically
+    d["extra"] = raw_extra if isinstance(raw_extra, dict) else {}
     return d
 
 
@@ -156,7 +151,7 @@ def log_event(
             (
                 event_id, created_at, event_type, persona, query_text,
                 verdict, result_count, avg_confidence,
-                json.dumps(extra) if extra else None,
+                PgJson(extra) if extra else None,
                 prev_hash, event_hash,
             ),
         )
