@@ -183,7 +183,6 @@ def _configure_opik():
         opik.configure(
             api_key=os.getenv("OPIK_API_KEY"),
             workspace=os.getenv("OPIK_WORKSPACE"),
-            use_authorization_header=True,
         )
         return True
     except Exception as exc:

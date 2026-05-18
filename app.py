@@ -57,7 +57,6 @@ async def lifespan(app: FastAPI):
         opik.configure(
             api_key=os.getenv("OPIK_API_KEY"),
             workspace=os.getenv("OPIK_WORKSPACE"),
-            use_authorization_header=True,
         )
         print("Opik configured successfully.")
     except Exception as e:
