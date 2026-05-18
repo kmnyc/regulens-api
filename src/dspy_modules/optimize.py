@@ -49,6 +49,7 @@ def track_dspy():
 # ── Benchmark examples ─────────────────────────────────────────────────────────
 
 BENCHMARK_EXAMPLES = [
+    # EU AI Act
     {
         "query": "What does EU AI Act Article 9 require for high-risk AI systems?",
         "persona": "lead_auditor",
@@ -57,11 +58,6 @@ BENCHMARK_EXAMPLES = [
     {
         "query": "What are the transparency obligations under EU AI Act Article 13?",
         "persona": "legal_counsel",
-        "expected_verdict": "PASS",
-    },
-    {
-        "query": "How does NIST AI RMF define the GOVERN function?",
-        "persona": "ml_engineer",
         "expected_verdict": "PASS",
     },
     {
@@ -75,11 +71,6 @@ BENCHMARK_EXAMPLES = [
         "expected_verdict": "PASS",
     },
     {
-        "query": "How does NIST AI RMF MAP function relate to risk identification?",
-        "persona": "ml_engineer",
-        "expected_verdict": "PASS",
-    },
-    {
         "query": "What are prohibited AI practices under Article 5 of the EU AI Act?",
         "persona": "lead_auditor",
         "expected_verdict": "PASS",
@@ -90,12 +81,49 @@ BENCHMARK_EXAMPLES = [
         "expected_verdict": "PASS",
     },
     {
-        "query": "How should AI systems log data for audit trail compliance?",
+        "query": "What are the accuracy and robustness requirements under Article 15?",
+        "persona": "lead_auditor",
+        "expected_verdict": "PASS",
+    },
+    # NIST AI RMF
+    {
+        "query": "How does NIST AI RMF define the GOVERN function?",
         "persona": "ml_engineer",
         "expected_verdict": "PASS",
     },
     {
-        "query": "What are the accuracy and robustness requirements under Article 15?",
+        "query": "How does NIST AI RMF MAP function relate to risk identification?",
+        "persona": "ml_engineer",
+        "expected_verdict": "PASS",
+    },
+    {
+        "query": "How should AI systems log data for audit trail compliance?",
+        "persona": "ml_engineer",
+        "expected_verdict": "PASS",
+    },
+    # ISO 42001
+    {
+        "query": "What does ISO 42001 Clause 6 require for AI risk assessment?",
+        "persona": "lead_auditor",
+        "expected_verdict": "PASS",
+    },
+    {
+        "query": "What are the ISO 42001 requirements for AI system impact assessment?",
+        "persona": "legal_counsel",
+        "expected_verdict": "PASS",
+    },
+    {
+        "query": "How does ISO 42001 Clause 9 define performance evaluation for AI systems?",
+        "persona": "ml_engineer",
+        "expected_verdict": "PASS",
+    },
+    {
+        "query": "What transparency and explainability obligations does ISO 42001 impose?",
+        "persona": "legal_counsel",
+        "expected_verdict": "PASS",
+    },
+    {
+        "query": "What human oversight controls does ISO 42001 require for AI systems?",
         "persona": "lead_auditor",
         "expected_verdict": "PASS",
     },
@@ -107,16 +135,24 @@ BENCHMARK_EXAMPLES = [
 # Required keywords per query — matched against prediction.answer (case-insensitive).
 # Score = fraction of keywords present. Rewards answers that cite specific articles/controls.
 _QUERY_KEYWORDS: dict[str, list[str]] = {
-    "article 9":     ["article 9", "risk management", "high-risk"],
-    "article 13":    ["article 13", "transparency", "information"],
+    # EU AI Act
+    "article 9":       ["article 9", "risk management", "high-risk"],
+    "article 13":      ["article 13", "transparency", "information"],
+    "article 14":      ["article 14", "human oversight", "oversight"],
+    "article 11":      ["article 11", "documentation", "technical"],
+    "article 5":       ["article 5", "prohibited", "unacceptable"],
+    "article 43":      ["article 43", "conformity", "assessment"],
+    "article 15":      ["article 15", "accuracy", "robustness"],
+    # NIST AI RMF
     "govern function": ["govern", "governance", "accountability"],
-    "article 14":    ["article 14", "human oversight", "oversight"],
-    "article 11":    ["article 11", "documentation", "technical"],
-    "map function":  ["map", "risk", "context"],
-    "article 5":     ["article 5", "prohibited", "unacceptable"],
-    "article 43":    ["article 43", "conformity", "assessment"],
-    "audit trail":   ["log", "audit", "record"],
-    "article 15":    ["article 15", "accuracy", "robustness"],
+    "map function":    ["map", "risk", "context"],
+    "audit trail":     ["log", "audit", "record"],
+    # ISO 42001
+    "iso 42001 clause 6":    ["iso 42001", "risk", "assessment"],
+    "iso 42001 requirements for ai system impact": ["impact", "assessment", "iso 42001"],
+    "iso 42001 clause 9":    ["iso 42001", "performance", "evaluation"],
+    "transparency and explainability obligations does iso": ["transparency", "explainability", "iso 42001"],
+    "human oversight controls does iso 42001": ["human oversight", "iso 42001", "control"],
 }
 
 # Generic compliance signals used when no specific keyword set matches
@@ -224,6 +260,10 @@ def run_optimization():
             requires_permission_to_run=False,
         )
         print("\nOptimization complete.")
+
+        demos = getattr(getattr(optimized, "synthesize", None), "demos", None) or \
+                getattr(getattr(getattr(optimized, "synthesize", None), "predict", None), "demos", None) or []
+        print(f"Demos in best program: {len(demos)}")
 
         save_path = "src/dspy_modules/optimized_synthesizer.json"
         optimized.save(save_path)

@@ -2,9 +2,31 @@
   "synthesize.predict": {
     "traces": [],
     "train": [],
-    "demos": [],
+    "demos": [
+      {
+        "augmented": true,
+        "query": "What are the transparency obligations under EU AI Act Article 13?",
+        "persona": "legal_counsel",
+        "context": "",
+        "reasoning": "The user asks for transparency obligations under Article 13 of the EU AI Act. As legal counsel, I must base my answer strictly on the provided context. However, the context is empty, meaning no regulatory text is given. Without any retrieved articles or text, I cannot cite specific obligations. I must state that the answer cannot be provided due to missing context, as per instructions to base the answer ONLY on provided context.",
+        "answer": "I cannot provide the transparency obligations under EU AI Act Article 13 because no regulatory context has been provided. The answer must be grounded solely in the retrieved context, which is currently empty. Please supply the relevant text to enable a compliant response."
+      },
+      {
+        "augmented": true,
+        "query": "What human oversight requirements apply to high-risk AI under Article 14?",
+        "persona": "lead_auditor",
+        "context": "",
+        "reasoning": "Based on the provided context (which is empty), there is no regulatory text to draw upon. As a lead auditor, I cannot fabricate requirements. Therefore, I must state that no relevant context was provided to answer the query regarding Article 14 of the AI Act.",
+        "answer": "No regulatory context was provided to answer this question. Under normal audit procedures, the answer would cite specific requirements from Article 14 of the EU AI Act, such as: (1) natural persons must have the ability to oversee the AI system's functioning, (2) oversight measures must be proportionate to the risk level, and (3) humans must be able to override or stop the system. However, without the referenced context, no grounded response can be given."
+      },
+      {
+        "query": "What does EU AI Act Article 9 require for high-risk AI systems?",
+        "persona": "lead_auditor",
+        "context": ""
+      }
+    ],
     "signature": {
-      "instructions": "You are a specialized regulatory compliance assistant operating under strict context-grounded constraints. Your persona (lead_auditor, legal_counsel, or ml_engineer) determines your analytical lens and tone.\n\nGiven a compliance query, a specified persona, and retrieved regulatory context (which may be empty), you must:\n\n1. Analyze the query from the perspective of the assigned persona.\n2. Base your reasoning and final answer **exclusively** on the provided context. Do not use external knowledge or assumptions.\n3. If the context is empty, explicitly state that no context was provided and either decline to answer or note the limitation.\n4. Cite specific article references (e.g., \"Article 9\") precisely when context is available.\n5. Produce a step-by-step reasoning trace that demonstrates how you arrived at your answer, considering the persona's viewpoint.\n6. Deliver a concise, authoritative final answer that directly addresses the query, adopting the appropriate persona tone (e.g., auditor: practical and risk-focused; legal counsel: precise and legally rigorous; ML engineer: technical and implementation-oriented).\n\nYour outputs must be: (1) a reasoning chain, and (2) a grounded answer. Always prioritize accuracy and adherence to the provided text over completeness.",
+      "instructions": "Answer a regulatory compliance question grounded in retrieved context.\n\nYou are an AI compliance expert acting in the specified persona role.\nBase your answer ONLY on the provided regulatory context. Cite article\nreferences precisely. Be concise and authoritative.",
       "fields": [
         {
           "prefix": "Query:",
