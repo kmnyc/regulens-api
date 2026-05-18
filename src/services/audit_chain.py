@@ -65,13 +65,23 @@ def _row_to_dict(cols: tuple, row: tuple) -> dict[str, Any]:
     d["event_type"] = d["event_type"] or "query"
     d["prev_hash"] = d["prev_hash"] or GENESIS_HASH
     d["event_hash"] = d["event_hash"] or ""
+    raw_extra = d.pop("extra_json", None)
+    if isinstance(raw_extra, str):
+        try:
+            d["extra"] = json.loads(raw_extra)
+        except Exception:
+            d["extra"] = {}
+    elif isinstance(raw_extra, dict):
+        d["extra"] = raw_extra
+    else:
+        d["extra"] = {}
     return d
 
 
 _COLS = (
     "event_id", "created_at", "event_type", "persona",
     "query_text", "verdict", "result_count", "avg_confidence",
-    "prev_hash", "event_hash",
+    "extra_json", "prev_hash", "event_hash",
 )
 
 # ── Public API ─────────────────────────────────────────────────────────────────

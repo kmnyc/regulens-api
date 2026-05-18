@@ -125,6 +125,7 @@ class AuditEvent(BaseModel):
     verdict: str | None
     result_count: int | None
     avg_confidence: float | None
+    extra: dict | None = None
     prev_hash: str
     event_hash: str
 
