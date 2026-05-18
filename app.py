@@ -395,6 +395,26 @@ def run_query(body: QueryRequest) -> QueryResponse:
     )
 
 
+@app.get("/api/audit/debug")
+def audit_debug() -> dict:
+    """Temporary diagnostic endpoint — surfaces DB errors for audit_events."""
+    results = {}
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='audit_events' ORDER BY ordinal_position")
+        results["columns"] = [{"name": r[0], "type": r[1]} for r in cur.fetchall()]
+        cur.execute("SELECT COUNT(*) FROM audit_events")
+        results["row_count"] = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        results["status"] = "ok"
+    except Exception as e:
+        results["status"] = "error"
+        results["error"] = str(e)
+    return results
+
+
 @app.get("/api/audit/events", response_model=list[AuditEvent])
 def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
     """Return audit events in descending order (newest first)."""
