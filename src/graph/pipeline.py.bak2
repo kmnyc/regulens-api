@@ -23,22 +23,6 @@ import psycopg2
 import requests
 from langgraph.graph import StateGraph, END
 
-# DSPy — gracefully degrade if not installed or Groq key missing
-DSPY_AVAILABLE = False
-_synthesizer = None
-_decomposer = None
-
-try:
-    from src.dspy_config import configure_dspy
-    from src.dspy_modules.modules import ReguLensSynthesizer, ReguLensDecomposer
-    if configure_dspy():
-        _synthesizer = ReguLensSynthesizer()
-        _decomposer = ReguLensDecomposer()
-        DSPY_AVAILABLE = True
-        print("DSPy modules loaded.")
-except Exception as _dspy_exc:
-    print(f"DSPy not available, using raw LLM calls: {_dspy_exc}")
-
 # Opik tracing — gracefully degrade if not installed or key missing
 try:
     from opik import track as opik_track
@@ -66,7 +50,6 @@ class GraphState(TypedDict, total=False):
     failure_count: int
     retry_count: int
     audit_hashes: list
-    synthesis_method: str
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -239,29 +222,10 @@ def synthesize_node(state: dict) -> dict:
     chunks = state.get("retrieved_chunks", [])
     query = state["query"]
     persona = state.get("persona", "lead_auditor")
+
     context = "\n\n".join(f"[{c['article_ref']}]: {c['content']}" for c in chunks)
-
-    if DSPY_AVAILABLE and _synthesizer is not None:
-        try:
-            result = _synthesizer(query=query, persona=persona, context=context)
-            return {"raw_answer": result.answer, "synthesis_method": "dspy"}
-        except Exception as exc:
-            print(f"DSPy synthesis failed, falling back to raw LLM: {exc}")
-            try:
-                from src.services.audit_chain import log_event
-                log_event(
-                    event_type="dspy_fallback",
-                    persona=persona,
-                    query_text=query[:200],
-                    verdict="FALLBACK",
-                    extra={"reason": str(exc)[:200]},
-                )
-            except Exception:
-                pass
-
-    # Fallback: original raw LLM call
     answer = _call_groq(query, context, persona)
-    return {"raw_answer": answer, "synthesis_method": "raw_llm"}
+    return {"raw_answer": answer}
 
 
 def verify_node(state: dict) -> dict:
@@ -328,7 +292,6 @@ def respond_node(state: dict) -> dict:
             extra={
                 "retry_count": state.get("retry_count", 0),
                 "source": "v2",
-                "method": state.get("synthesis_method", "raw_llm"),
             },
         )
     except Exception as exc:

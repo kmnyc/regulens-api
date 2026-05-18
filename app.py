@@ -319,6 +319,7 @@ async def run_query(body: QueryRequest) -> QueryResponse:
         "failure_count": 0,
         "retry_count": 0,
         "audit_hashes": [],
+        "synthesis_method": "raw_llm",
     }
 
     try:
@@ -370,6 +371,7 @@ async def run_query_v2(body: QueryRequest) -> QueryV2Response:
         "failure_count": 0,
         "retry_count": 0,
         "audit_hashes": [],
+        "synthesis_method": "raw_llm",
     }
 
     try:
