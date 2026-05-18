@@ -100,7 +100,6 @@ class QueryResponse(BaseModel):
 
 
 class AuditEvent(BaseModel):
-    id: int
     event_id: str
     created_at: str
     event_type: str
@@ -117,7 +116,7 @@ class AuditVerifyResponse(BaseModel):
     total_events: int
     legacy_rows_skipped: int
     chain_valid: bool
-    broken_at_id: int | None
+    broken_at_event_id: str | None
     message: str
 
 
@@ -425,16 +424,16 @@ def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, event_id, created_at, event_type, persona, query_text,
+            SELECT event_id::text, created_at, event_type, persona, query_text,
                    verdict, result_count, avg_confidence, prev_hash, event_hash
             FROM audit_events
-            ORDER BY id DESC
+            ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
             (limit, offset),
         )
         cols = (
-            "id", "event_id", "created_at", "event_type", "persona",
+            "event_id", "created_at", "event_type", "persona",
             "query_text", "verdict", "result_count", "avg_confidence",
             "prev_hash", "event_hash",
         )
@@ -445,17 +444,16 @@ def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
 
     return [
         AuditEvent(
-            id=r["id"],
-            event_id=r["event_id"],
+            event_id=str(r["event_id"]),
             created_at=r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
-            event_type=r["event_type"],
+            event_type=r["event_type"] or "query",
             persona=r["persona"],
             query_text=r["query_text"],
             verdict=r["verdict"],
             result_count=r["result_count"],
             avg_confidence=r["avg_confidence"],
-            prev_hash=r["prev_hash"],
-            event_hash=r["event_hash"],
+            prev_hash=r["prev_hash"] or GENESIS_HASH,
+            event_hash=r["event_hash"] or "",
         )
         for r in rows
     ]
@@ -473,14 +471,14 @@ def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, event_id, created_at, event_type, persona, query_text,
+            SELECT event_id::text, created_at, event_type, persona, query_text,
                    verdict, result_count, avg_confidence, prev_hash, event_hash
             FROM audit_events
-            ORDER BY id ASC
+            ORDER BY created_at ASC
             """
         )
         cols = (
-            "id", "event_id", "created_at", "event_type", "persona",
+            "event_id", "created_at", "event_type", "persona",
             "query_text", "verdict", "result_count", "avg_confidence",
             "prev_hash", "event_hash",
         )
@@ -489,33 +487,38 @@ def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
     finally:
         conn.close()
 
-    legacy = [r for r in all_rows if r["event_hash"] == ""]
-    chained = [r for r in all_rows if r["event_hash"] != ""]
+    legacy = [r for r in all_rows if not r["event_hash"]]
+    chained = [r for r in all_rows if r["event_hash"]]
     rows = chained if skip_legacy else all_rows
     legacy_skipped = len(legacy) if skip_legacy else 0
 
     if not rows:
+        msg = (
+            f"No chained audit events yet. {legacy_skipped} legacy row(s) skipped."
+            if legacy_skipped else "No audit events yet."
+        )
         return AuditVerifyResponse(
             total_events=0,
             legacy_rows_skipped=legacy_skipped,
             chain_valid=True,
-            broken_at_id=None,
-            message=f"No chained audit events yet. {legacy_skipped} legacy row(s) skipped." if legacy_skipped else "No audit events yet.",
+            broken_at_event_id=None,
+            message=msg,
         )
 
     expected_prev = GENESIS_HASH
     for row in rows:
+        eid = str(row["event_id"])
         if row["prev_hash"] != expected_prev:
             return AuditVerifyResponse(
                 total_events=len(rows),
                 legacy_rows_skipped=legacy_skipped,
                 chain_valid=False,
-                broken_at_id=row["id"],
-                message=f"Chain broken at event id={row['id']}: prev_hash mismatch.",
+                broken_at_event_id=eid,
+                message=f"Chain broken at event {eid}: prev_hash mismatch.",
             )
 
         data = {
-            "event_id":       row["event_id"],
+            "event_id":       eid,
             "created_at":     row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
             "event_type":     row["event_type"],
             "persona":        row["persona"],
@@ -530,8 +533,8 @@ def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
                 total_events=len(rows),
                 legacy_rows_skipped=legacy_skipped,
                 chain_valid=False,
-                broken_at_id=row["id"],
-                message=f"Chain broken at event id={row['id']}: event_hash mismatch (data tampered).",
+                broken_at_event_id=eid,
+                message=f"Chain broken at event {eid}: event_hash mismatch (data tampered).",
             )
 
         expected_prev = row["event_hash"]
@@ -540,7 +543,7 @@ def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
         total_events=len(rows),
         legacy_rows_skipped=legacy_skipped,
         chain_valid=True,
-        broken_at_id=None,
+        broken_at_event_id=None,
         message=f"All {len(rows)} chained event(s) verified. Chain intact. {legacy_skipped} legacy row(s) skipped.",
     )
 
