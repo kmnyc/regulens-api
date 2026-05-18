@@ -7,7 +7,8 @@ Run locally (requires dspy-ai installed):
 LM split:
   - prompt_model (MIPROv2 instruction generation): DeepSeek deepseek-chat
   - task_model (trial eval): DeepSeek deepseek-chat
-  - metric: keyword matching against prediction.answer — no live API calls
+  - metric: keyword matching against prediction.answer — no live API calls during trials
+  - context: prefetched from /api/v1/query (semantic search) before optimization starts
 
 DSPy is not installed on Render free tier — this runs offline only.
 Opik traces optimization trials if OPIK_API_KEY is set.
@@ -17,6 +18,10 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import requests
+
+LIVE_API = "https://regulens-api-bnlw.onrender.com"
 
 # ── Opik tracing setup ─────────────────────────────────────────────────────────
 
@@ -206,6 +211,43 @@ def _build_deepseek_lm(dspy):
         return None
 
 
+def _prefetch_contexts(examples: list[dict]) -> list[str]:
+    """Fetch real retrieval contexts from live API (/api/v1/query — semantic search, no Groq synthesis)."""
+    # Wake the API first
+    print(f"Waking live API at {LIVE_API}...")
+    try:
+        r = requests.get(f"{LIVE_API}/api/health", timeout=30)
+        print(f"  API status: {r.json()}")
+    except Exception as exc:
+        print(f"  WARNING: API wake failed ({exc}) — contexts will be empty")
+        return [""] * len(examples)
+
+    contexts = []
+    print(f"Prefetching retrieval context for {len(examples)} benchmark examples...")
+    for i, ex in enumerate(examples):
+        try:
+            resp = requests.post(
+                f"{LIVE_API}/api/v1/query",
+                json={"query": ex["query"], "persona": ex["persona"]},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            chunks = data.get("results", [])
+            context = "\n\n".join(
+                f"[{c['article_ref']}]: {c['content']}" for c in chunks
+            )
+            contexts.append(context)
+            top_ref = chunks[0]["article_ref"] if chunks else "none"
+            print(f"  [{i+1:02d}/{len(examples)}] {len(chunks)} chunks (top: {top_ref}) — {ex['query'][:48]}")
+            if i < len(examples) - 1:
+                time.sleep(1)
+        except Exception as exc:
+            print(f"  [{i+1:02d}] fetch failed ({exc}) — using empty context")
+            contexts.append("")
+    return contexts
+
+
 def run_optimization():
     try:
         import dspy
@@ -237,13 +279,16 @@ def run_optimization():
     print(f"  task_model   (trial eval):      {lm_name}")
     print("Metric uses keyword matching on prediction.answer — no live API calls.\n")
 
+    # Prefetch real retrieval contexts from live API
+    contexts = _prefetch_contexts(BENCHMARK_EXAMPLES)
+
     trainset = [
         dspy.Example(
             query=ex["query"],
             persona=ex["persona"],
-            context="",  # filled at runtime by retrieve step
+            context=ctx,
         ).with_inputs("query", "persona", "context")
-        for ex in BENCHMARK_EXAMPLES
+        for ex, ctx in zip(BENCHMARK_EXAMPLES, contexts)
     ]
 
     synthesizer = ReguLensSynthesizer()
