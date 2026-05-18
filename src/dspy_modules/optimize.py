@@ -146,7 +146,7 @@ _QUERY_KEYWORDS: dict[str, list[list[str]]] = {
     "article 13":      [["article 13"], ["transparency"], ["information"]],
     "article 14":      [["article 14"], ["human oversight", "oversight"], ["oversight"]],
     "article 11":      [["article 11"], ["documentation", "documented"], ["technical"]],
-    "article 5":       [["article 5"], ["prohibited"], ["unacceptable", "forbidden", "banned", "impermissible"]],
+    "article 5":       [["article 5"], ["prohibited"], ["unacceptable", "forbidden", "banned", "impermissible", "subliminal", "biometric", "social scor", "facial recognit"]],
     "article 43":      [["article 43"], ["conformity"], ["assessment"]],
     "article 15":      [["article 15"], ["accuracy"], ["robustness", "resilience", "robust"]],
     # NIST AI RMF
