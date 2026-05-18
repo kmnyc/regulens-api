@@ -50,6 +50,19 @@ _regulens_graph = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _embed_model, _regulens_graph
+
+    # Opik — configure before graph build; gracefully skip if key missing
+    try:
+        import opik
+        opik.configure(
+            api_key=os.getenv("OPIK_API_KEY"),
+            workspace=os.getenv("OPIK_WORKSPACE"),
+            use_authorization_header=True,
+        )
+        print("Opik configured successfully.")
+    except Exception as e:
+        print(f"Opik configuration failed (non-fatal): {e}")
+
     from fastembed import TextEmbedding
     print("Loading all-MiniLM-L6-v2 via fastembed...")
     _embed_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
