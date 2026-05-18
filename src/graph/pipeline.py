@@ -23,6 +23,19 @@ import psycopg2
 import requests
 from langgraph.graph import StateGraph, END
 
+# Opik tracing — gracefully degrade if not installed or key missing
+try:
+    from opik import track as opik_track
+    from opik.integrations.langchain import track_langgraph
+    _OPIK_AVAILABLE = True
+except Exception:
+    _OPIK_AVAILABLE = False
+    def opik_track(*args, **kwargs):  # type: ignore[misc]
+        def decorator(func): return func
+        if args and callable(args[0]): return args[0]
+        return decorator
+    def track_langgraph(graph): return graph  # type: ignore[misc]
+
 
 class GraphState(TypedDict, total=False):
     query: str
@@ -79,12 +92,14 @@ def _get_conn():
     return psycopg2.connect(_DB_DSN, connect_timeout=5)
 
 
+@opik_track(name="embed_query")
 def _embed(text: str) -> list[float]:
     if _embed_model is None:
         raise RuntimeError("Embedding model not initialized in graph pipeline")
     return list(list(_embed_model.embed([text[:512]]))[0])
 
 
+@opik_track(name="search_corpus")
 def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
     emb_str = "[" + ",".join(f"{v:.8f}" for v in embedding) + "]"
     conn = _get_conn()
@@ -108,6 +123,7 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
     return rows
 
 
+@opik_track(name="call_groq_llm")
 def _call_groq(query: str, context: str, persona: str) -> str:
     if not GROQ_API_KEY:
         return "[Synthesis unavailable — GROQ_API_KEY not configured]"
@@ -316,4 +332,11 @@ def build_regulens_graph():
     graph.add_edge("gap_report", "respond")
     graph.add_edge("respond", END)
 
-    return graph.compile()
+    compiled = graph.compile()
+    try:
+        tracked = track_langgraph(compiled)
+        print("LangGraph Opik tracing enabled.")
+        return tracked
+    except Exception as e:
+        print(f"Opik tracing failed (non-fatal), using untracked graph: {e}")
+        return compiled
