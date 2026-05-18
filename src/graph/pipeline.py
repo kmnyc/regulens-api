@@ -17,11 +17,26 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, TypedDict
 
 import psycopg2
 import requests
 from langgraph.graph import StateGraph, END
+
+
+class GraphState(TypedDict, total=False):
+    query: str
+    persona: str
+    threshold: float
+    retrieved_chunks: list
+    retrieval_count: int
+    raw_answer: str
+    claims: list
+    overall_verdict: str
+    avg_confidence: float
+    failure_count: int
+    retry_count: int
+    audit_hashes: list
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -273,7 +288,7 @@ def respond_node(state: dict) -> dict:
 
 
 def build_regulens_graph():
-    graph = StateGraph(dict)
+    graph = StateGraph(GraphState)
 
     graph.add_node("set_threshold", set_threshold)
     graph.add_node("retrieve", retrieve_node)
