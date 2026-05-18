@@ -169,50 +169,29 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
 
 
 def _ensure_audit_table() -> None:
-    """Create audit_events table (or migrate existing) to include all expected columns."""
-    statements = [
-        # Create table if missing entirely — safe no-op if it exists
-        """
-        CREATE TABLE IF NOT EXISTS audit_events (
-            id             BIGSERIAL    PRIMARY KEY,
-            event_id       TEXT         NOT NULL DEFAULT gen_random_uuid()::text,
-            created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-            event_type     TEXT         NOT NULL DEFAULT 'query',
-            persona        TEXT,
-            query_text     TEXT,
-            verdict        TEXT,
-            result_count   INT,
-            avg_confidence DOUBLE PRECISION,
-            extra_json     JSONB,
-            prev_hash      TEXT         NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
-            event_hash     TEXT         NOT NULL DEFAULT ''
-        )
-        """,
-        # Idempotent column migrations — cover any pre-existing table schema
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_id       TEXT         NOT NULL DEFAULT gen_random_uuid()::text",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_type     TEXT         NOT NULL DEFAULT 'query'",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS persona        TEXT",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS query_text     TEXT",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS verdict        TEXT",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS result_count   INT",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS avg_confidence DOUBLE PRECISION",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS extra_json     JSONB",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS prev_hash      TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'",
-        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash     TEXT NOT NULL DEFAULT ''",
-        # Partial unique index — only enforces uniqueness on real chained rows
-        "CREATE UNIQUE INDEX IF NOT EXISTS ix_audit_events_event_hash ON audit_events (event_hash) WHERE event_hash <> ''",
-        "CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events (created_at DESC)",
-    ]
+    """Create audit_chain_events table — separate from legacy audit_events schema."""
+    ddl = """
+    CREATE TABLE IF NOT EXISTS audit_chain_events (
+        event_id       TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        event_type     TEXT        NOT NULL DEFAULT 'query',
+        persona        TEXT,
+        query_text     TEXT,
+        verdict        TEXT,
+        result_count   INT,
+        avg_confidence DOUBLE PRECISION,
+        extra_json     JSONB,
+        prev_hash      TEXT        NOT NULL,
+        event_hash     TEXT        NOT NULL UNIQUE
+    );
+    CREATE INDEX IF NOT EXISTS ix_audit_chain_created_at
+        ON audit_chain_events (created_at DESC);
+    """
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        for stmt in statements:
-            try:
-                cur.execute(stmt)
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                print(f"[audit] DDL warning (non-fatal): {e}")
+        cur.execute(ddl)
+        conn.commit()
         cur.close()
     finally:
         conn.close()
@@ -225,9 +204,9 @@ def _compute_event_hash(data: dict[str, Any], prev_hash: str) -> str:
 
 
 def _get_prev_hash(cur) -> str:
-    """Return the event_hash of the latest chained event, skipping legacy rows (event_hash='')."""
+    """Return the event_hash of the latest row in audit_chain_events, or GENESIS_HASH."""
     cur.execute(
-        "SELECT event_hash FROM audit_events WHERE event_hash <> '' ORDER BY id DESC LIMIT 1"
+        "SELECT event_hash FROM audit_chain_events ORDER BY created_at DESC LIMIT 1"
     )
     row = cur.fetchone()
     return row[0] if row else GENESIS_HASH
@@ -266,7 +245,7 @@ def _log_audit_event(
 
         cur.execute(
             """
-            INSERT INTO audit_events
+            INSERT INTO audit_chain_events
                 (event_id, created_at, event_type, persona, query_text,
                  verdict, result_count, avg_confidence, extra_json,
                  prev_hash, event_hash)
@@ -394,25 +373,6 @@ def run_query(body: QueryRequest) -> QueryResponse:
     )
 
 
-@app.get("/api/audit/debug")
-def audit_debug() -> dict:
-    """Temporary diagnostic endpoint — surfaces DB errors for audit_events."""
-    results = {}
-    try:
-        conn = _get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='audit_events' ORDER BY ordinal_position")
-        results["columns"] = [{"name": r[0], "type": r[1]} for r in cur.fetchall()]
-        cur.execute("SELECT COUNT(*) FROM audit_events")
-        results["row_count"] = cur.fetchone()[0]
-        cur.close()
-        conn.close()
-        results["status"] = "ok"
-    except Exception as e:
-        results["status"] = "error"
-        results["error"] = str(e)
-    return results
-
 
 @app.get("/api/audit/events", response_model=list[AuditEvent])
 def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
@@ -424,9 +384,9 @@ def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT event_id::text, created_at, event_type, persona, query_text,
+            SELECT event_id, created_at, event_type, persona, query_text,
                    verdict, result_count, avg_confidence, prev_hash, event_hash
-            FROM audit_events
+            FROM audit_chain_events
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
@@ -471,9 +431,9 @@ def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT event_id::text, created_at, event_type, persona, query_text,
+            SELECT event_id, created_at, event_type, persona, query_text,
                    verdict, result_count, avg_confidence, prev_hash, event_hash
-            FROM audit_events
+            FROM audit_chain_events
             ORDER BY created_at ASC
             """
         )
