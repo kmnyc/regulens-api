@@ -115,6 +115,7 @@ class AuditEvent(BaseModel):
 
 class AuditVerifyResponse(BaseModel):
     total_events: int
+    legacy_rows_skipped: int
     chain_valid: bool
     broken_at_id: int | None
     message: str
@@ -219,8 +220,10 @@ def _compute_event_hash(data: dict[str, Any], prev_hash: str) -> str:
 
 
 def _get_prev_hash(cur) -> str:
-    """Return the event_hash of the latest event, or GENESIS_HASH if none."""
-    cur.execute("SELECT event_hash FROM audit_events ORDER BY id DESC LIMIT 1")
+    """Return the event_hash of the latest chained event, skipping legacy rows (event_hash='')."""
+    cur.execute(
+        "SELECT event_hash FROM audit_events WHERE event_hash <> '' ORDER BY id DESC LIMIT 1"
+    )
     row = cur.fetchone()
     return row[0] if row else GENESIS_HASH
 
@@ -433,8 +436,12 @@ def list_audit_events(limit: int = 50, offset: int = 0) -> list[AuditEvent]:
 
 
 @app.get("/api/audit/verify", response_model=AuditVerifyResponse)
-def verify_audit_chain() -> AuditVerifyResponse:
-    """Walk the full chain oldest→newest and re-derive each hash. Reports first break."""
+def verify_audit_chain(skip_legacy: bool = True) -> AuditVerifyResponse:
+    """Walk the chain oldest→newest and re-derive each hash. Reports first break.
+
+    skip_legacy=true (default): excludes rows with event_hash='' (pre-chain-era rows).
+    skip_legacy=false: includes all rows; legacy rows will always fail verification.
+    """
     conn = _get_conn()
     try:
         cur = conn.cursor()
@@ -451,17 +458,23 @@ def verify_audit_chain() -> AuditVerifyResponse:
             "query_text", "verdict", "result_count", "avg_confidence",
             "prev_hash", "event_hash",
         )
-        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        all_rows = [dict(zip(cols, row)) for row in cur.fetchall()]
         cur.close()
     finally:
         conn.close()
 
+    legacy = [r for r in all_rows if r["event_hash"] == ""]
+    chained = [r for r in all_rows if r["event_hash"] != ""]
+    rows = chained if skip_legacy else all_rows
+    legacy_skipped = len(legacy) if skip_legacy else 0
+
     if not rows:
         return AuditVerifyResponse(
             total_events=0,
+            legacy_rows_skipped=legacy_skipped,
             chain_valid=True,
             broken_at_id=None,
-            message="No audit events yet.",
+            message=f"No chained audit events yet. {legacy_skipped} legacy row(s) skipped." if legacy_skipped else "No audit events yet.",
         )
 
     expected_prev = GENESIS_HASH
@@ -469,6 +482,7 @@ def verify_audit_chain() -> AuditVerifyResponse:
         if row["prev_hash"] != expected_prev:
             return AuditVerifyResponse(
                 total_events=len(rows),
+                legacy_rows_skipped=legacy_skipped,
                 chain_valid=False,
                 broken_at_id=row["id"],
                 message=f"Chain broken at event id={row['id']}: prev_hash mismatch.",
@@ -488,6 +502,7 @@ def verify_audit_chain() -> AuditVerifyResponse:
         if computed != row["event_hash"]:
             return AuditVerifyResponse(
                 total_events=len(rows),
+                legacy_rows_skipped=legacy_skipped,
                 chain_valid=False,
                 broken_at_id=row["id"],
                 message=f"Chain broken at event id={row['id']}: event_hash mismatch (data tampered).",
@@ -497,9 +512,10 @@ def verify_audit_chain() -> AuditVerifyResponse:
 
     return AuditVerifyResponse(
         total_events=len(rows),
+        legacy_rows_skipped=legacy_skipped,
         chain_valid=True,
         broken_at_id=None,
-        message=f"All {len(rows)} events verified. Chain intact.",
+        message=f"All {len(rows)} chained event(s) verified. Chain intact. {legacy_skipped} legacy row(s) skipped.",
     )
 
 
