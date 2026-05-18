@@ -89,14 +89,14 @@
 
 **Execution started:** 2026-05-17
 **Pre-execution tag:** `pre-caveman-v3` (commit `a900d4e`)
-**Current state:** Prompt 3 complete — Opik tracing live, LangGraph spans shipping to Opik dashboard
+**Current state:** Prompt 4 complete — DSPy modules live (graceful fallback active), extra_json JSONB working, audit chain at 71 events
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
 | **1** | SHA-256 Hash Chain Audit Trail | LOW | ✅ COMPLETE |
 | **2** | LangGraph StateGraph | MEDIUM | ✅ COMPLETE |
 | **3** | Opik Observability | LOW | ✅ COMPLETE |
-| **4** | DSPy Modules | MEDIUM | ⬜ PENDING |
+| **4** | DSPy Modules | MEDIUM | ✅ COMPLETE |
 | **5** | DSPy + Opik Integration | LOW | ⬜ PENDING |
 | **6** | End-to-End Validation | NONE | ⬜ PENDING |
 
@@ -125,4 +125,17 @@
 - [x] `src/eval/metrics.py` — ClaimAccuracyMetric, ThresholdComplianceMetric (no-op if opik absent)
 - [x] App starts normally without `OPIK_API_KEY` (graceful degradation)
 - [x] Live `/api/query` returns correct results (5 PASS results, chain_valid: True, 48 events)
+- [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works
+
+### Prompt 4 Acceptance Criteria
+- [x] `src/dspy_config.py` — Groq LM config, returns False if GROQ_API_KEY missing (graceful)
+- [x] `src/dspy_modules/signatures.py` — PersonaSynthesis, ClaimDecomposition DSPy Signatures
+- [x] `src/dspy_modules/modules.py` — ReguLensSynthesizer, ReguLensDecomposer (ChainOfThought)
+- [x] `synthesize_node` in pipeline.py — DSPy primary with raw LLM fallback (try/except)
+- [x] DSPy fallback logs `event_type="dspy_fallback"` to audit chain when DSPy fails
+- [x] `audit_events` API exposes `extra` field (shows `method: dspy` or `method: raw_llm`)
+- [x] `dspy-ai` commented out of requirements.txt (too heavy for Render Docker free tier — graceful DSPY_AVAILABLE=False on deploy, active locally with pip install dspy-ai)
+- [x] Live POST `/api/query` returns 5 PASS results, audit_event_id present
+- [x] Live GET `/api/audit/events` shows `extra.method: "raw_llm"` (DSPy gracefully disabled on Render free tier — not in requirements.txt; to enable: `pip install dspy-ai` locally)
+- [x] chain_valid: True, 71 total events
 - [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works
