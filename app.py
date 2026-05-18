@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ReguLens API",
     description="Semantic search over EU AI Act / NIST AI RMF regulatory corpus",
-    version="1.0.0",
+    version="1.4.0",
     lifespan=lifespan,
 )
 
