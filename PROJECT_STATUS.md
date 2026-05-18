@@ -94,7 +94,7 @@
 | # | Prompt | Risk | Status |
 |---|---|---|---|
 | **1** | SHA-256 Hash Chain Audit Trail | LOW | ✅ COMPLETE |
-| **2** | LangGraph StateGraph | MEDIUM | ⬜ PENDING |
+| **2** | LangGraph StateGraph | MEDIUM | ⏳ IN PROGRESS |
 | **3** | Opik Observability | LOW | ⬜ PENDING |
 | **4** | DSPy Modules | MEDIUM | ⬜ PENDING |
 | **5** | DSPy + Opik Integration | LOW | ⬜ PENDING |
