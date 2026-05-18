@@ -89,7 +89,7 @@
 
 **Execution started:** 2026-05-17
 **Pre-execution tag:** `pre-caveman-v3` (commit `a900d4e`)
-**Current state:** Prompt 1 complete — 2 audit events confirmed, chain intact
+**Current state:** Prompt 1 complete — 3 audit events confirmed, chain intact, audit_chain.py service extracted
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
@@ -103,6 +103,7 @@
 ### Prompt 1 Acceptance Criteria
 - [x] Live POST `/api/query` returns same results as before
 - [x] Live GET `/api/audit/verify` returns chain_valid: true
-- [x] 2 audit events confirmed with hash chaining
+- [x] 3 audit events confirmed with hash chaining
 - [x] skip_legacy flag added — pre-existing rows excluded from chain check
 - [x] Frontend at https://kmnyc.github.io/ReguLens-TechM/ still works
+- [x] audit logic extracted to `src/services/audit_chain.py` (ready for LangGraph import)
