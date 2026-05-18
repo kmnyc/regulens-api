@@ -169,30 +169,44 @@ def _search(embedding: list[float], limit: int = 5) -> list[dict[str, Any]]:
 
 
 def _ensure_audit_table() -> None:
-    """Create audit_events table with hash-chain columns if it doesn't exist."""
-    ddl = """
-    CREATE TABLE IF NOT EXISTS audit_events (
-        id             BIGSERIAL    PRIMARY KEY,
-        event_id       TEXT         NOT NULL DEFAULT gen_random_uuid()::text,
-        created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-        event_type     TEXT         NOT NULL,
-        persona        TEXT,
-        query_text     TEXT,
-        verdict        TEXT,
-        result_count   INT,
-        avg_confidence DOUBLE PRECISION,
-        extra_json     JSONB,
-        prev_hash      TEXT         NOT NULL,
-        event_hash     TEXT         NOT NULL UNIQUE
-    );
-    CREATE INDEX IF NOT EXISTS ix_audit_events_created_at
-        ON audit_events (created_at DESC);
-    """
+    """Create audit_events table (or migrate existing) to include hash-chain columns."""
+    statements = [
+        # Create table if missing entirely
+        """
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id             BIGSERIAL    PRIMARY KEY,
+            event_id       TEXT         NOT NULL DEFAULT gen_random_uuid()::text,
+            created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+            event_type     TEXT         NOT NULL DEFAULT 'query',
+            persona        TEXT,
+            query_text     TEXT,
+            verdict        TEXT,
+            result_count   INT,
+            avg_confidence DOUBLE PRECISION,
+            extra_json     JSONB,
+            prev_hash      TEXT         NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
+            event_hash     TEXT         NOT NULL DEFAULT '' UNIQUE
+        )
+        """,
+        # Add hash-chain columns to pre-existing table (ALTER TABLE ADD COLUMN IF NOT EXISTS)
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS prev_hash TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS extra_json JSONB",
+        # Unique index on event_hash (skip if already exists)
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_audit_events_event_hash ON audit_events (event_hash) WHERE event_hash <> ''",
+        # Index for recency queries
+        "CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events (created_at DESC)",
+    ]
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(ddl)
-        conn.commit()
+        for stmt in statements:
+            try:
+                cur.execute(stmt)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"[audit] DDL warning (non-fatal): {e}")
         cur.close()
     finally:
         conn.close()
