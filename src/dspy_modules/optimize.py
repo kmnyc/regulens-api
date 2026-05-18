@@ -32,11 +32,13 @@ def _configure_opik():
 
 
 def track_dspy():
-    """Wrap DSPy calls with Opik tracing if available."""
+    """Register OpikCallback with DSPy for tracing."""
     try:
-        from opik.integrations.dspy import track_dspy as _track_dspy
-        _track_dspy()
-        print("DSPy Opik tracing enabled.")
+        import dspy
+        from opik.integrations.dspy import OpikCallback
+        cb = OpikCallback(project_name="regulens")
+        dspy.settings.configure(callbacks=[cb])
+        print("DSPy Opik tracing enabled (OpikCallback).")
     except Exception as exc:
         print(f"DSPy Opik tracing unavailable (non-fatal): {exc}")
 
@@ -101,8 +103,10 @@ BENCHMARK_EXAMPLES = [
 
 def claim_accuracy_metric(example, prediction, trace=None) -> float:
     """Fraction of PASS verdicts in retrieved chunks."""
+    import time
     import requests
 
+    time.sleep(5)  # Groq free tier TPM limit — 12k TPM, space out calls
     try:
         resp = requests.post(
             f"{LIVE_API}/api/v2/query",
@@ -159,17 +163,14 @@ def run_optimization():
     try:
         optimizer = dspy.MIPROv2(
             metric=claim_accuracy_metric,
+            auto="light",
             num_threads=1,
-            max_labeled_demos=3,
-            max_bootstrapped_demos=2,
         )
         optimized = optimizer.compile(
             synthesizer,
             trainset=trainset,
-            num_trials=3,
-            max_bootstrapped_demos=2,
-            max_labeled_demos=3,
             minibatch=False,
+            requires_permission_to_run=False,
         )
         print("\nOptimization complete.")
 

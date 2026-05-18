@@ -1,0 +1,40 @@
+{
+  "synthesize.predict": {
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "Answer a regulatory compliance question grounded in retrieved context.\n\nYou are an AI compliance expert acting in the specified persona role.\nBase your answer ONLY on the provided regulatory context. Cite article\nreferences precisely. Be concise and authoritative.",
+      "fields": [
+        {
+          "prefix": "Query:",
+          "description": "The compliance question to answer"
+        },
+        {
+          "prefix": "Persona:",
+          "description": "Expert persona: lead_auditor, legal_counsel, or ml_engineer"
+        },
+        {
+          "prefix": "Context:",
+          "description": "Retrieved regulatory text chunks with article references"
+        },
+        {
+          "prefix": "Reasoning: Let's think step by step in order to",
+          "description": "${reasoning}"
+        },
+        {
+          "prefix": "Answer:",
+          "description": "Grounded compliance answer citing specific articles"
+        }
+      ]
+    },
+    "lm": null
+  },
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.9",
+      "dspy": "2.6.27",
+      "cloudpickle": "3.1"
+    }
+  }
+}
