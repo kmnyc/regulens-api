@@ -100,17 +100,21 @@
 
 ### DSPy MIPROv2 Optimization (2026-05-18)
 
-**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d`
+**Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d` → `72818ec`
 
 **Status:** ✅ COMPLETE — ISO 42001 ingested, corpus 312 chunks, best score 88.89%, 3 demos persisted
 
 ### Corpus (Neon `regulatory_chunks`)
-| Framework | Chunks |
-|---|---|
-| EU AI Act (2024/1689) | 161 |
-| NIST AI RMF 1.0 | 117 |
-| ISO/IEC 42001:2023 | 34 |
-| **Total** | **312** |
+| Document | Framework | Chunks |
+|---|---|---|
+| EU AI Act (Regulation 2024/1689) | EU AI Act | 161 |
+| NIST AI Risk Management Framework 1.0 | NIST AI RMF | 117 |
+| NIST AI RMF Playbook — Suggested Actions | NIST AI RMF | 19 |
+| ISO/IEC 42001:2023 AI Management System | ISO 42001 | 50 |
+| **Total** | | **347** |
+
+**ISO 42001 coverage:** Clauses 4–10 (all sub-clauses), Annexes A.2–A.10, Annex B, plus fairness/transparency/human oversight/accountability concepts.
+**NIST coverage:** Full framework PDF (117 chunks: GOVERN×27, MAP×25, MEASURE×26, MANAGE×17) + Playbook suggested actions for all subcategories.
 
 ### MIPROv2 Optimization Steps
 | Step | Status | Detail |
@@ -120,8 +124,9 @@
 | Opik callback fix | ✅ FIXED | `track_dspy()` removed in opik 1.9.x → `OpikCallback(project_name="regulens")` |
 | DeepSeek LM split | ✅ COMPLETE | `DEEPSEEK_API_KEY` → `deepseek/deepseek-chat` as both `prompt_model` and `task_model`; `dspy.configure(lm=deepseek_lm)` overrides global so ChainOfThought uses DeepSeek during trials |
 | Metric fix | ✅ COMPLETE | `claim_accuracy_metric` scores `prediction.answer` via keyword matching — no live API re-query; trials now differentiate |
-| ISO 42001 ingestion | ✅ COMPLETE | `src/ingest_iso42001.py` — 34 chunks, Clauses 4–10 + Annexes A/B + fairness/transparency/oversight/accountability |
-| Full MIPROv2 run (v2) | ✅ COMPLETE | 15 examples (7 EU AI Act + 3 NIST + 5 ISO 42001); 11 trials; best **88.89%** (Instruction 0 + Few-Shot Set 5); **3 demos persisted** |
+| ISO 42001 ingestion | ✅ COMPLETE | `src/ingest_iso42001.py` (34) + `src/ingest_iso42001_supplement.py` (16) = **50 chunks** — all clauses 4–10 + all Annex A sections |
+| NIST Playbook ingestion | ✅ COMPLETE | `src/ingest_nist_supplement.py` — 19 chunks of suggested actions for GOVERN 1–6, MAP 1–5, MEASURE 1–4, MANAGE 1–4 |
+| Full MIPROv2 run (v3) | ✅ COMPLETE | 347-chunk corpus; 15 examples; 11 trials; best **88.89%** (Instruction 0 + Few-Shot Set 5); **3 demos persisted** |
 | Instruction 2 → live | ✅ LIVE | `_call_groq` system prompt upgraded to Instruction 2; `pipeline.py` loads `optimized_synthesizer.json` when DSPy available |
 
 **Key files:**
