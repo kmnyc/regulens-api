@@ -19,6 +19,7 @@ from src.services.audit_chain import (
     list_events as _list_audit_events,
     verify_chain as _verify_audit_chain,
 )
+from src.graph.pipeline import build_regulens_graph, init_embed_model as _init_graph_embed
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -43,11 +44,12 @@ CONFIDENCE_FLAG = 0.60
 # ── Embedding model (ONNX via fastembed — ~150MB RAM, no torch) ────────────────
 
 _embed_model = None
+_regulens_graph = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _embed_model
+    global _embed_model, _regulens_graph
     from fastembed import TextEmbedding
     print("Loading all-MiniLM-L6-v2 via fastembed...")
     _embed_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
@@ -55,6 +57,9 @@ async def lifespan(app: FastAPI):
     print("Model ready.")
     _ensure_audit_table()
     print("Audit table ready.")
+    _init_graph_embed(_embed_model)
+    _regulens_graph = build_regulens_graph()
+    print("LangGraph pipeline ready.")
     yield
 
 
@@ -117,6 +122,19 @@ class AuditVerifyResponse(BaseModel):
     chain_valid: bool
     broken_at_event_id: str | None
     message: str
+
+
+class QueryV2Response(BaseModel):
+    query: str
+    persona: str
+    threshold: float
+    retrieved_chunks: list[dict]
+    raw_answer: str
+    claims: list[dict]
+    overall_verdict: str
+    avg_confidence: float
+    retry_count: int
+    audit_event_id: str | None = None
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
@@ -258,6 +276,51 @@ def run_query(body: QueryRequest) -> QueryResponse:
         persona=body.persona,
         threshold=threshold,
         query=body.query,
+        audit_event_id=audit_event_id,
+    )
+
+
+@app.post("/api/v2/query", response_model=QueryV2Response)
+async def run_query_v2(body: QueryRequest) -> QueryV2Response:
+    """LangGraph tri-agent pipeline (parallel endpoint — /api/query unmodified)."""
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Model not ready")
+    if _regulens_graph is None:
+        raise HTTPException(status_code=503, detail="LangGraph pipeline not initialized")
+
+    initial_state: dict = {
+        "query": body.query,
+        "persona": body.persona,
+        "threshold": 0.0,
+        "retrieved_chunks": [],
+        "retrieval_count": 0,
+        "raw_answer": "",
+        "claims": [],
+        "overall_verdict": "",
+        "avg_confidence": 0.0,
+        "failure_count": 0,
+        "retry_count": 0,
+        "audit_hashes": [],
+    }
+
+    try:
+        result = await _regulens_graph.ainvoke(initial_state)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {exc}") from exc
+
+    hashes = result.get("audit_hashes") or []
+    audit_event_id = hashes[0] if hashes else None
+
+    return QueryV2Response(
+        query=result.get("query", body.query),
+        persona=result.get("persona", body.persona),
+        threshold=result.get("threshold", 0.0),
+        retrieved_chunks=result.get("retrieved_chunks", []),
+        raw_answer=result.get("raw_answer", ""),
+        claims=result.get("claims", []),
+        overall_verdict=result.get("overall_verdict", "NO_RESULTS"),
+        avg_confidence=result.get("avg_confidence", 0.0),
+        retry_count=result.get("retry_count", 0),
         audit_event_id=audit_event_id,
     )
 
