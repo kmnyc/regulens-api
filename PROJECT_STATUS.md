@@ -1,8 +1,8 @@
 # ReguLens — Project Status
 
-> **Last Updated:** 2026-05-18 (DSPy MIPROv2 optimization complete — 83.33% best score)
+> **Last Updated:** 2026-05-18 (DSPy MIPROv2 100.0% — all Caveman v3 prompts complete)
 > **Updated By:** Kareem Mohammed
-> **Version:** v3.2 (DSPy MIPROv2 fully optimized)
+> **Version:** v3.2 — COMPLETE ✅
 
 ---
 
@@ -102,7 +102,7 @@
 
 **Commits:** `14fc79c` → `3b388cf` → `ed6c695` → `426d544` → `b7152cf` → `a189ef1` → `c06b35d` → `72818ec` → `aaafed3` → `abc7e1e` → `21472ee`
 
-**Status:** ✅ COMPLETE — ISO 42001 ingested, corpus 312 chunks, best score 88.89%, 3 demos persisted
+**Status:** ✅ COMPLETE — Corpus 347 chunks (EU AI Act 162 + NIST 136 + ISO 42001 50), MIPROv2 **100.0%**, Article 5 retrieval fix applied
 
 ### Corpus (Neon `regulatory_chunks`)
 | Document | Framework | Chunks |
@@ -134,14 +134,15 @@
 | Full MIPROv2 run (v5) | ✅ **100.0%** | Default program 100%, 8/11 trials 100%, best: Instruction 1 + Few-Shot Set 3; 0 demos needed — real context sufficient |
 | Instruction 2 → live | ✅ LIVE | `_call_groq` system prompt upgraded to Instruction 2; `pipeline.py` loads `optimized_synthesizer.json` when DSPy available |
 
-**Optimization score progression:**
-| Run | Context | Best Score | Notes |
+**Score journey: 42.5% → 83.33% → 88.89% → 97.22% → 100.0%**
+
+| Run | Context | Best Score | Root cause / fix |
 |---|---|---|---|
-| v1 (10 examples) | empty | 42.5% | Groq TPD exhausted, all trials zeroed |
-| v2 (10 examples, metric fix) | empty | 83.33% | Metric now evaluates prediction.answer |
-| v3 (15 examples, ISO 42001) | empty | 88.89% | ISO 42001 queries added |
-| v4 (15 examples, real context) | Neon retrieval | 97.22% | Context prefetch; Article 5 retrieval bug |
-| v5 (Article 5 fix) | Neon retrieval | **100.0%** | Article 5 Summary chunk (sim=0.9955); default program = 100% |
+| v1 (10 examples) | empty | 42.5% | Groq 100k TPD exhausted — trials 2–10 zeroed |
+| v2 (metric fix) | empty | 83.33% | Fixed metric to score `prediction.answer` via keyword matching instead of re-querying live API |
+| v3 (15 examples + ISO 42001) | empty | 88.89% | Added 5 ISO 42001 benchmark queries + enriched corpus |
+| v4 (real context prefetch) | Neon retrieval | 97.22% | `_prefetch_contexts()` pulls real chunks via `/api/v1/query` before optimization — model sees regulatory vocabulary |
+| v5 (Article 5 retrieval fix) | Neon retrieval | **100.0%** | Article 5 chunk was 4519 chars — embedder read only first 512 (subliminal section), never surfaced for "prohibited practices" query. Added 1061-char summary chunk with "unacceptable risk" vocab → sim=0.9955. Default program scores 100%. |
 
 **Key files:**
 - `src/dspy_modules/optimize.py` — 15-example benchmark, ISO 42001 keywords, demo count logging
