@@ -21,6 +21,18 @@ from src.services.audit_chain import (
 )
 from src.graph.pipeline import build_regulens_graph, init_embed_model as _init_graph_embed
 
+try:
+    from src.services.feedback import (
+        ensure_table as _ensure_feedback_table,
+        log_event as _log_feedback_event,
+    )
+    _FEEDBACK_AVAILABLE = True
+except Exception as _fb_exc:
+    print(f"Feedback service unavailable (non-fatal): {_fb_exc}")
+    _FEEDBACK_AVAILABLE = False
+    def _ensure_feedback_table(): pass  # type: ignore[misc]
+    def _log_feedback_event(*_a, **_kw): pass  # type: ignore[misc]
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 DB_DSN = (
@@ -69,6 +81,8 @@ async def lifespan(app: FastAPI):
     print("Model ready.")
     _ensure_audit_table()
     print("Audit table ready.")
+    _ensure_feedback_table()
+    print("Feedback table ready.")
     _init_graph_embed(_embed_model)
     _regulens_graph = build_regulens_graph()
     print("LangGraph pipeline ready.")
@@ -381,6 +395,17 @@ async def run_query_v2(body: QueryRequest) -> QueryV2Response:
 
     hashes = result.get("audit_hashes") or []
     audit_event_id = hashes[0] if hashes else None
+
+    # Log low-confidence or non-PASS queries as training feedback
+    if _FEEDBACK_AVAILABLE:
+        try:
+            r_verdict = result.get("overall_verdict", "")
+            r_conf = float(result.get("avg_confidence", 0.0))
+            r_threshold = float(result.get("threshold", 0.0))
+            if r_conf < r_threshold or r_verdict != "PASS":
+                _log_feedback_event(body.query, body.persona, r_conf, r_verdict)
+        except Exception as _fb_err:
+            print(f"[feedback] WARNING: {_fb_err}")
 
     return QueryV2Response(
         query=result.get("query", body.query),

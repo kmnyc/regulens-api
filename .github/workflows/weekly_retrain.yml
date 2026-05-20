@@ -1,0 +1,53 @@
+name: Weekly Self-Improvement Retrain
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # Every Monday 00:00 UTC
+  workflow_dispatch:        # Manual trigger for testing
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # Required to commit updated optimized_synthesizer.json
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet \
+            dspy-ai \
+            psycopg2-binary \
+            requests \
+            "opik>=1.9.0"
+
+      - name: Run retrain
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPIK_API_KEY: ${{ secrets.OPIK_API_KEY }}
+          OPIK_WORKSPACE: ${{ secrets.OPIK_WORKSPACE }}
+        run: python src/retrain.py
+
+      - name: Commit updated synthesizer if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/dspy_modules/optimized_synthesizer.json
+          if git diff --cached --quiet; then
+            echo "No change to optimized_synthesizer.json — quality gate kept existing program."
+          else
+            git commit -m "chore: weekly retrain — quality gate passed, updated optimized_synthesizer.json"
+            git push
+            echo "Committed and pushed updated synthesizer."
+          fi
