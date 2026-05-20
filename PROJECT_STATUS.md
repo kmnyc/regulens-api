@@ -1,8 +1,8 @@
 # ReguLens — Project Status
 
-> **Last Updated:** 2026-05-20 (DSPy self-improvement loop: feedback_events, retrain.py, weekly_retrain.yml)
+> **Last Updated:** 2026-05-20 (Architecture self-improvement card + live query validation)
 > **Updated By:** Kareem Mohammed
-> **Version:** v3.6 — self-improvement loop live
+> **Version:** v3.7 — frontend self-improvement pipeline card; 3/3 live queries PASS
 
 ---
 
