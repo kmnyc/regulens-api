@@ -1,8 +1,8 @@
 # ReguLens — Project Status
 
-> **Last Updated:** 2026-05-18 (DSPy MIPROv2 100.0% — all Caveman v3 prompts complete)
+> **Last Updated:** 2026-05-20 (DSPy self-improvement loop: feedback_events, retrain.py, weekly_retrain.yml)
 > **Updated By:** Kareem Mohammed
-> **Version:** v3.2 — COMPLETE ✅
+> **Version:** v3.6 — self-improvement loop live
 
 ---
 
@@ -67,8 +67,9 @@
 | **Frontend** | GitHub Pages (static, `frontend-v2/`) |
 | **Orchestration** | LangGraph StateGraph (being added — Prompt 2) |
 | **Observability** | Opik / Comet (being added — Prompt 3) |
-| **Prompt Optimization** | DSPy MIPROv2 ✅ COMPLETE — 83.33% keyword score (Instruction 2 + Few-Shot Set 3) |
-| **Audit Trail** | SHA-256 hash-chained `audit_events` in Neon PostgreSQL (being added — Prompt 1) |
+| **Prompt Optimization** | DSPy MIPROv2 ✅ COMPLETE — 100.0% (v5, Article 5 fix); self-improvement loop live |
+| **Audit Trail** | SHA-256 hash-chained `audit_chain_events` in Neon PostgreSQL ✅ LIVE |
+| **Self-Improvement** | `feedback_events` → weekly MIPROv2 retrain (GitHub Actions, Monday 00:00 UTC) ✅ LIVE |
 
 ### Key Environment Variables (set in Render Dashboard)
 | Variable | Purpose |
@@ -181,9 +182,28 @@ python src/dspy_modules/optimize.py
 | **Failure routing** | ✅ LIVE | FLAG cascade verified (avg_conf 0.73 for vague queries) |
 | **Frontend** | ✅ LIVE | https://kmnyc.github.io/ReguLens-TechM/ |
 | **API** | ✅ LIVE | https://regulens-api-bnlw.onrender.com |
+| **Self-improvement loop** | ✅ LIVE | feedback_events table, retrain.py, weekly_retrain.yml (Monday 00:00 UTC) |
+
+### Self-Improvement Loop (v3.6, 2026-05-20)
+
+**Safety tag:** `pre-self-improvement` at `79bb807`
+**Commit:** `edd38d2`
+
+| File | Purpose |
+|---|---|
+| `src/services/feedback.py` | `feedback_events` table: id, query_text, persona, confidence, verdict, created_at, used_for_training |
+| `app.py` | `/api/v2/query` logs to feedback_events when `avg_confidence < threshold` OR `overall_verdict != PASS` |
+| `src/retrain.py` | Merge feedback + benchmarks, run MIPROv2, quality gate (save if new_score >= current_score), mark events used |
+| `.github/workflows/weekly_retrain.yml` | Cron Monday 00:00 UTC: install dspy-ai, run retrain.py, commit/push JSON if gate passes |
+
+**Quality gate:** new program saved only if it scores >= current score on combined trainset. Prevents regression.
+
+**Feedback trigger test (2026-05-20):** `"general AI governance principles"` lead_auditor → conf=0.9333 < threshold=0.96 → logged to feedback_events ✅
+
+**GitHub Secrets required:** `DATABASE_URL`, `DEEPSEEK_API_KEY`, `GROQ_API_KEY`, `OPIK_API_KEY`, `OPIK_WORKSPACE`
 
 ### DSPy Note
-DSPy (`dspy-ai` package) exceeds Render free tier Docker build limits (heavy transitive deps: datasets, optuna, litellm). Optimization runs locally; `optimized_synthesizer.json` artifact is committed to repo. Live server runs graceful raw-LLM fallback. To enable DSPy on server: upgrade to Render paid tier OR uncomment `dspy-ai>=2.5.0` in `requirements.txt` and redeploy on a capable host.
+DSPy (`dspy-ai` package) exceeds Render free tier Docker build limits (heavy transitive deps: datasets, optuna, litellm). Optimization runs in GitHub Actions weekly; `optimized_synthesizer.json` artifact is committed to repo. Live server runs graceful raw-LLM fallback. To enable DSPy on server: upgrade to Render paid tier OR uncomment `dspy-ai>=2.5.0` in `requirements.txt` and redeploy on a capable host.
 
 | # | Prompt | Risk | Status |
 |---|---|---|---|
